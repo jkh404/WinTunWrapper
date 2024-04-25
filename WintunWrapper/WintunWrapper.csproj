@@ -1,0 +1,33 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+	  <TargetFrameworks>netstandard2.1;net6.0;net7.0;net8.0</TargetFrameworks>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Platforms>AnyCPU;x64</Platforms>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+	<ItemGroup Condition="'$(Platform)'=='x86'">
+		<Content Include="DLL\win-x86\wintun.dll">
+			<Link>wintun.dll</Link>
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
+	</ItemGroup>
+	<ItemGroup Condition="'$(Platform)'=='x64'">
+		<Content Include="DLL\win-x64\wintun.dll">
+			<Link>wintun.dll</Link>
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+		</Content>
+	</ItemGroup>
+	<ItemGroup>
+	  <Folder Include="Properties\PublishProfiles\" />
+	</ItemGroup>
+	<ItemGroup>
+		<None Include="DLL\win-x64\wintun.dll" Pack="true" PackagePath="runtimes/win-x64/native" />
+		<None Include="DLL\win-x86\wintun.dll" Pack="true" PackagePath="runtimes/win-x86/native" />
+		<None Include="DLL\win-arm\wintun.dll" Pack="true" PackagePath="runtimes/win-arm/native" />
+		<None Include="DLL\win-arm64\wintun.dll" Pack="true" PackagePath="runtimes/win-arm64/native" />
+	</ItemGroup>
+</Project>
