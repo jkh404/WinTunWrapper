@@ -27,8 +27,23 @@ WintunStartSession	14	0x000062B0	WintunStartSession
     public static class Const
     {
         public const int MAX_ADAPTER_NAME = 128;
+        /// <summary>
+        /// 128kiB
+        /// </summary>
+        public const uint WINTUN_MIN_RING_CAPACITY = 0x20000;
+        /// <summary>
+        /// 64MiB
+        /// </summary>
+        public const uint WINTUN_MAX_RING_CAPACITY = 0x4000000;
+        
     }
-    public delegate void WintunLoggerCallBack(WintunLoggerLevel loggerLevel,long Timestamp,string Message);
+    /// <summary>
+    /// 全局记录器回调
+    /// </summary>
+    /// <param name="loggerLevel">日志等级</param>
+    /// <param name="Timestamp">从1601-01-01 UTC.开始的Ticks数</param>
+    /// <param name="Message">错误信息</param>
+    public unsafe delegate void WintunLoggerCallBack(WintunLoggerLevel loggerLevel,long Timestamp,char* Message);
     public unsafe static class WintunAPI
     {
         const string WintunDll = "wintun.dll";
@@ -45,7 +60,7 @@ WintunStartSession	14	0x000062B0	WintunStartSession
         /// <param name="RequestedGUID">The GUID of the created network adapter, which then influences NLA generation deterministically. If it is set to NULL, the GUID is chosen by the system at random, and hence a new NLA entry is created for each new adapter. It is called "requested" GUID because the API it uses is completely undocumented, and so there could be minor interesting complications with its usage.</param>
         /// <returns></returns>
         [DllImport(WintunDll, EntryPoint = "WintunCreateAdapter",CharSet = CharSet.Unicode)]
-        public static extern ref WintunAdapter WintunCreateAdapter(string Name, string TunnelType, IntPtr RequestedGUID);
+        public static extern  WintunAdapter* WintunCreateAdapter(string Name, string TunnelType, IntPtr RequestedGUID);
 
         /// <summary>
         /// Opens an existing Wintun adapter.
@@ -68,9 +83,25 @@ WintunStartSession	14	0x000062B0	WintunStartSession
 
         [DllImport(WintunDll, EntryPoint = "WintunGetRunningDriverVersion")]
         public static extern int WintunGetRunningDriverVersion();
-        //void WintunSetLogger (WINTUN_LOGGER_CALLBACK NewLogger)
-        [DllImport(WintunDll, EntryPoint = "WintunSetLogger")]
+        /// <summary>
+        /// 设置记录器回调函数。
+        /// </summary>
+        /// <param name="wintunLoggerCallBack">指向回调函数的指针，用作新的全局记录器。NewLogger 可以同时从各种线程调用。如果日志记录需要序列化，则必须在 NewLogger 中处理序列化。设置为 NULL 以禁用。</param>
+        /// <returns></returns>
+        [DllImport(WintunDll, EntryPoint = "WintunSetLogger", CharSet = CharSet.Unicode)]
         public static extern int WintunSetLogger(WintunLoggerCallBack wintunLoggerCallBack);
+
+        /// <summary>
+        /// 启动 Wintun 会话。
+        /// </summary>
+        /// <param name="Adapter">使用 WintunOpenAdapter 或 WintunCreateAdapter 获取的适配器句柄</param>
+        /// <param name="Capacity">容量。必须介于 WINTUN_MIN_RING_CAPACITY 和 WINTUN_MAX_RING_CAPACITY 之间（包括）并且必须是 2 的幂。</param>
+        /// <returns>Wintun 会话句柄。必须与 WintunEndSession 一起使用。如果函数失败，则返回值为 NULL。</returns>
+
+        [DllImport(WintunDll, EntryPoint = "WintunStartSession")]
+        public static extern TunSession* WintunStartSession(WintunAdapter* Adapter, uint Capacity);
+
+
         public static IntPtr GetPtr<T>(this T valueObj)where T:struct
         {
             IntPtr intPtr = Marshal.AllocHGlobal(Marshal.SizeOf(valueObj));
@@ -97,15 +128,15 @@ WintunStartSession	14	0x000062B0	WintunStartSession
         /// <summary>
         /// Informational
         /// </summary>
-        WINTUN_LOG_INFO,
+        INFO,
         /// <summary>
         /// Warning
         /// </summary>
-        WINTUN_LOG_WARN,
+        WARN,
         /// <summary>
         /// Error
         /// </summary>
-        WINTUN_LOG_ERR,        
+        ERR,        
     }
     [StructLayout(LayoutKind.Explicit, Size = 8)]
     public struct NetLUIDLH

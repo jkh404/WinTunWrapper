@@ -24,9 +24,9 @@ unsafe
 
 }
 
-void WintunLoggerCallBack(WintunLoggerLevel loggerLevel, long Timestamp, string Message)
+unsafe void WintunLoggerCallBack(WintunLoggerLevel loggerLevel, long Timestamp, char* Message)
 {
     //timestamp in in 100ns intervals since 1601-01-01 UTC. 
     var now=new DateTime(1601,1,1,0,0,0,DateTimeKind.Local).AddTicks(Timestamp);
-    Console.WriteLine($"{loggerLevel} {now.ToLocalTime()} {Message}");
+    Console.WriteLine($"{loggerLevel} {now.ToLocalTime()} {new string(Message)}");
 }
