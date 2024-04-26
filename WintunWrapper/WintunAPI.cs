@@ -7,30 +7,7 @@ using Microsoft.VisualBasic;
 
 namespace WintunWrapper
 {
-    public static class Const
-    {
-        /// <summary>
-        /// 最大适配器名称长度
-        /// </summary>
-        public const int MAX_ADAPTER_NAME = 128;
-        /// <summary>
-        /// 环形缓冲区最小长度. 128kiB
-        /// </summary>
-        public const int WINTUN_MIN_RING_CAPACITY = 0x20000;
-        /// <summary>
-        /// 环形缓冲区最大长度. 64MiB
-        /// </summary>
-        public const int WINTUN_MAX_RING_CAPACITY = 0x4000000;
-        /// <summary>
-        /// IP包最大长度
-        /// </summary>
-        public const int WINTUN_MAX_IP_PACKET_SIZE = 0xFFFF;
-        /// <summary>
-        /// wintundll的文件名
-        /// </summary>
-        public const string WintunDll = "wintun.dll";
-        public const long ERROR_NO_MORE_ITEMS = 259L;
-    }
+    
     /// <summary>
     /// 全局记录器回调
     /// </summary>
@@ -38,7 +15,7 @@ namespace WintunWrapper
     /// <param name="Timestamp">从1601-01-01 UTC.开始的Ticks数</param>
     /// <param name="Message">错误信息</param>
     public unsafe delegate void WintunLoggerCallBack(WintunLoggerLevel loggerLevel,long Timestamp,IntPtr Message);
-    public unsafe static class WintunAPI
+    internal unsafe static class WintunAPI
     {
 
         /// <summary>
@@ -137,7 +114,7 @@ namespace WintunWrapper
         /// <param name="PacketSize">用于接收数据包大小的指针。</param>
         /// <returns>指向第 3 层 IPv4 或 IPv6 数据包的指针。客户可以随意修改其内容。如果函数失败，则返回值为 NULL。</returns>
         [DllImport(Const.WintunDll, EntryPoint = "WintunReceivePacket")]
-        public static extern IntPtr WintunReceivePacket(IntPtr Session,ref int PacketSize);
+        public static extern IntPtr WintunReceivePacket(IntPtr Session, IntPtr PacketSize);
         /// <summary>
         /// 在客户端处理收到的数据包后释放内部缓冲区。此函数是线程安全的。
         /// </summary>
@@ -172,24 +149,24 @@ namespace WintunWrapper
         [DllImport("Kernel32.dll", EntryPoint = "GetLastError")]
         public static extern long GetLastError();
 
-        public static IntPtr GetPtr<T>(this T? valueObj)where T:struct
+        internal static IntPtr GetPtr<T>(this T? valueObj)where T:struct
         {
             if (valueObj==null) throw new ArgumentNullException(nameof(valueObj));
             IntPtr intPtr = Marshal.AllocHGlobal(Marshal.SizeOf(valueObj));
             Marshal.StructureToPtr(valueObj, intPtr,false);
             return intPtr;
         }
-        public static IntPtr GetPtr<T>() where T : struct
+        internal static IntPtr GetPtr<T>() where T : struct
         {
             IntPtr intPtr = Marshal.AllocHGlobal(Marshal.SizeOf<T>());
             return intPtr;
         }
-        public static T? ToStruct<T>(this IntPtr ptr) where T : struct
+        internal static T? ToStruct<T>(this IntPtr ptr) where T : struct
         {
             if (ptr!=IntPtr.Zero)return Marshal.PtrToStructure<T>(ptr);
             return null;
         }
-        public static IntPtr GetPtr(this string text,Encoding? encoding=null)
+        internal static IntPtr GetPtr(this string text,Encoding? encoding=null)
         {
             if (encoding==null) encoding=Encoding.Unicode;
             var data=encoding.GetBytes(text);
@@ -198,7 +175,30 @@ namespace WintunWrapper
             return intPtr;
         }
     }
-
+    public static class Const
+    {
+        /// <summary>
+        /// 最大适配器名称长度
+        /// </summary>
+        public const int MAX_ADAPTER_NAME = 128;
+        /// <summary>
+        /// 环形缓冲区最小长度. 128kiB
+        /// </summary>
+        public const int WINTUN_MIN_RING_CAPACITY = 0x20000;
+        /// <summary>
+        /// 环形缓冲区最大长度. 64MiB
+        /// </summary>
+        public const int WINTUN_MAX_RING_CAPACITY = 0x4000000;
+        /// <summary>
+        /// IP包最大长度
+        /// </summary>
+        public const int WINTUN_MAX_IP_PACKET_SIZE = 0xFFFF;
+        /// <summary>
+        /// wintundll的文件名
+        /// </summary>
+        public const string WintunDll = "wintun.dll";
+        public const long ERROR_NO_MORE_ITEMS = 259L;
+    }
     public enum WintunLoggerLevel:int
     {
         INFO,

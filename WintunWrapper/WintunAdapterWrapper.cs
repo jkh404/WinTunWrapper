@@ -1,9 +1,12 @@
 ﻿using System;
 using System.Buffers;
 using System.Diagnostics;
+using System.Net;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using static Vanara.PInvoke.IpHlpApi;
+using static Vanara.PInvoke.Ws2_32;
 
 namespace WintunWrapper
 {
@@ -38,17 +41,23 @@ namespace WintunWrapper
         }
         private void ReceivePacket(object? obj)
         {
+            Mutex mutex = new Mutex(false);
+            IntPtr quitEventPtr = WintunAPI.WintunGetReadWaitEvent(_SessionPrt);
+            mutex.SafeWaitHandle = new Microsoft.Win32.SafeHandles.SafeWaitHandle(quitEventPtr, false);
+
             while (!IsQuit)
             {
                 while (IsOpen && IsStart && _SessionPrt!=IntPtr.Zero)
                 {
                     try
                     {
-                        IntPtr quitEventPtr = WintunAPI.WintunGetReadWaitEvent(_SessionPrt);
-                        AutoResetEvent quitEvent = new AutoResetEvent(false);
-                        quitEvent.SafeWaitHandle = new Microsoft.Win32.SafeHandles.SafeWaitHandle(quitEventPtr, false);
+
+                        
+                        IntPtr PacketDataSizePtr = WintunAPI.GetPtr<int>();
+
+                        var dataPtr=WintunAPI.WintunReceivePacket(_SessionPrt, PacketDataSizePtr);
                         int PacketDataSize = 0;
-                        var dataPtr=WintunAPI.WintunReceivePacket(_SessionPrt,ref PacketDataSize);
+                        if(PacketDataSizePtr!=IntPtr.Zero) PacketDataSize=PacketDataSizePtr.ToStruct<int>()??0;
                         if (PacketDataSize>0 && dataPtr!=IntPtr.Zero)
                         {
                             byte[] data=ArrayPool<byte>.Shared.Rent(PacketDataSize);
@@ -63,8 +72,8 @@ namespace WintunWrapper
                             switch (errCode)
                             {
                                 case Const.ERROR_NO_MORE_ITEMS:
-                                    quitEvent.WaitOne();
-                                    break;
+                                    mutex.WaitOne();
+                                    continue;
                                 default:
                                     continue;
                             }
@@ -79,28 +88,34 @@ namespace WintunWrapper
                 }
                 Thread.Sleep(1000);
             }
+            Debug.WriteLine("接收线程退出");
         }
-        public void Open(uint? sessionCapacity=null)
+        public void Open()
         {
             _AdapterPtr=WintunAPI.WintunOpenAdapter(Name);
             if (_AdapterPtr!=IntPtr.Zero) IsOpen=true;
-            if (IsOpen)
-            {
-                StartSession(sessionCapacity??SessionCapacity);
-            }
+            
         }
         /// <summary>
         /// 阻塞启动
         /// </summary>
-        public void Start()
+        public void Start(IPAddress iPAddress,uint? sessionCapacity = null)
         {
+            if (IsOpen)
+            {
+                StartSession(iPAddress,sessionCapacity??SessionCapacity);
+            }
             ReceivePacket(null);
         }
         /// <summary>
         /// 不阻塞启动
         /// </summary>
-        public  void StartAsync()
+        public  void StartAsync(IPAddress iPAddress,uint? sessionCapacity = null)
         {
+            if (IsOpen)
+            {
+                StartSession(iPAddress,sessionCapacity??SessionCapacity);
+            }
             receiveThread= new Thread(ReceivePacket);
             receiveThread.IsBackground=true;
             receiveThread.Start();
@@ -114,13 +129,23 @@ namespace WintunWrapper
             _AdapterPtr=IntPtr.Zero;
             IsOpen =false;
         }
-        private bool StartSession(uint Capacity=1024*1024*1)
+        private bool StartSession(IPAddress iPAddress,uint Capacity=1024*1024*1)
         {
             if (_AdapterPtr==IntPtr.Zero) throw new InvalidOperationException();
             if(!IsOpen) throw new InvalidOperationException();
             if(!(Capacity>=Const.WINTUN_MIN_RING_CAPACITY && Capacity<=Const.WINTUN_MAX_RING_CAPACITY && Capacity%2==0))
                 throw new ArgumentException(nameof(Capacity));
-            _SessionPrt=WintunAPI.WintunStartSession(_AdapterPtr, Capacity);
+            MIB_UNICASTIPADDRESS_ROW AddressRow;
+            InitializeUnicastIpAddressEntry(out AddressRow);
+            var LUIDPtr = WintunAPI.GetPtr<NET_LUID>();
+            WintunAPI.WintunGetAdapterLUID(_AdapterPtr, LUIDPtr);
+            AddressRow.InterfaceLuid=LUIDPtr.ToStruct<NET_LUID>()!.Value;
+            AddressRow.Address.Ipv4.sin_family=ADDRESS_FAMILY.AF_INET;
+            AddressRow.Address.Ipv4.sin_addr=new IN_ADDR(iPAddress.GetAddressBytes());
+            AddressRow.OnLinkPrefixLength = 24;
+            AddressRow.DadState=NL_DAD_STATE.IpDadStatePreferred;
+            CreateUnicastIpAddressEntry(ref AddressRow);
+            _SessionPrt =WintunAPI.WintunStartSession(_AdapterPtr, Capacity);
             if (_SessionPrt==IntPtr.Zero) return false;
             IsStart =true;
             return true;

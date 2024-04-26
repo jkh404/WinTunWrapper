@@ -30,4 +30,7 @@
 		<None Include="DLL\win-arm\wintun.dll" Pack="true" PackagePath="runtimes/win-arm/native" />
 		<None Include="DLL\win-arm64\wintun.dll" Pack="true" PackagePath="runtimes/win-arm64/native" />
 	</ItemGroup>
+	<ItemGroup>
+	  <PackageReference Include="Vanara.PInvoke.IpHlpApi" Version="4.0.0" />
+	</ItemGroup>
 </Project>
