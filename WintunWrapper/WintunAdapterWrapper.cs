@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Buffers;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,6 +14,7 @@ namespace WintunWrapper
         public delegate void ReceiveCallBack(Span<byte> data);
         public WintunLoggerCallBack? OnLog;
         public ReceiveCallBack? OnReceive;
+        public readonly Guid? ID;
         private IntPtr _AdapterPtr=IntPtr.Zero;
         public readonly string Name;
         public readonly string TunnelType;
@@ -22,10 +24,11 @@ namespace WintunWrapper
         public uint SessionCapacity { get; set; } = 1024*1024*1;
         private bool disposedValue;
         private bool IsQuit=false;
-        private Thread receiveThread;
-        private WintunAdapterWrapper(IntPtr adapterPtr, string name,string tunnelType, bool isOpen)
+        private Thread? receiveThread;
+        private WintunAdapterWrapper(Guid? requestedGUID, IntPtr adapterPtr, string name,string tunnelType, bool isOpen)
         {
             if (adapterPtr==IntPtr.Zero) throw new ArgumentNullException(nameof(adapterPtr));
+            ID=requestedGUID;
             _AdapterPtr=adapterPtr;
             Name=name;
             TunnelType=tunnelType;
@@ -60,18 +63,18 @@ namespace WintunWrapper
                             switch (errCode)
                             {
                                 case Const.ERROR_NO_MORE_ITEMS:
-                                    quitEvent.WaitOne(-1, true);
+                                    quitEvent.WaitOne();
                                     break;
                                 default:
-                                    break;
+                                    continue;
                             }
                         }
 
                         
                     }
-                    catch 
+                    catch (Exception e)
                     {
-
+                        Debug.WriteLine(e);
                     }
                 }
                 Thread.Sleep(1000);
@@ -115,6 +118,8 @@ namespace WintunWrapper
         {
             if (_AdapterPtr==IntPtr.Zero) throw new InvalidOperationException();
             if(!IsOpen) throw new InvalidOperationException();
+            if(!(Capacity>=Const.WINTUN_MIN_RING_CAPACITY && Capacity<=Const.WINTUN_MAX_RING_CAPACITY && Capacity%2==0))
+                throw new ArgumentException(nameof(Capacity));
             _SessionPrt=WintunAPI.WintunStartSession(_AdapterPtr, Capacity);
             if (_SessionPrt==IntPtr.Zero) return false;
             IsStart =true;
@@ -175,7 +180,7 @@ namespace WintunWrapper
             if (RequestedGUID==null) RequestedGUID=Guid.NewGuid();
             IntPtr GUIDPtr = RequestedGUID.GetPtr();
             var adapterPtr = WintunAPI.WintunCreateAdapter(Name, TunnelType, GUIDPtr);
-            return new WintunAdapterWrapper(adapterPtr, Name, TunnelType, false);
+            return new WintunAdapterWrapper(RequestedGUID,adapterPtr, Name, TunnelType, false);
         }
         /// <summary>
         /// 如果不再使用，调用该方法删除驱动
