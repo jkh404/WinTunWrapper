@@ -29,6 +29,7 @@ namespace WintunWrapper
         /// wintundll的文件名
         /// </summary>
         public const string WintunDll = "wintun.dll";
+        public const long ERROR_NO_MORE_ITEMS = 259L;
     }
     /// <summary>
     /// 全局记录器回调
@@ -109,14 +110,14 @@ namespace WintunWrapper
         /// <returns>Wintun 会话句柄。必须与 WintunEndSession 一起使用。如果函数失败，则返回值为 NULL。</returns>
 
         [DllImport(Const.WintunDll, EntryPoint = "WintunStartSession")]
-        public static extern TunSession* WintunStartSession(WintunAdapter* Adapter, uint Capacity);
+        public static extern IntPtr WintunStartSession(IntPtr Adapter, uint Capacity);
         /// <summary>
         /// 结束 Wintun 会话。
         /// </summary>
         /// <param name="Session">使用 WintunStartSession 获取的 Wintun 会话句柄</param>
         /// <returns></returns>
         [DllImport(Const.WintunDll, EntryPoint = "WintunEndSession")]
-        public static extern TunSession* WintunEndSession(TunSession* Session);
+        public static extern void WintunEndSession(IntPtr Session);
         //HANDLE WintunGetReadWaitEvent (WINTUN_SESSION_HANDLE Session)
         /// <summary>
         /// 获取 Wintun 会话的读取-等待事件句柄。
@@ -127,7 +128,7 @@ namespace WintunWrapper
         /// 如果 WintunReceivePackets 返回ERROR_NO_MORE_ITEMS（在重负载下旋转一段时间后），请等待此事件发出信号，然后再重试 WintunReceivePackets。
         /// 不要在此事件上调用 CloseHandle - 它由会话管理。</returns>
         [DllImport(Const.WintunDll, EntryPoint = "WintunGetReadWaitEvent")]
-        public static extern IntPtr WintunGetReadWaitEvent(TunSession* Session);
+        public static extern IntPtr WintunGetReadWaitEvent(IntPtr Session);
 
         /// <summary>
         /// 检索一个或数据包。使用数据包内容后，使用从此函数返回的数据包调用 WintunReleaseReceivePacket 以释放内部缓冲区。此函数是线程安全的。
@@ -136,14 +137,14 @@ namespace WintunWrapper
         /// <param name="PacketSize">用于接收数据包大小的指针。</param>
         /// <returns>指向第 3 层 IPv4 或 IPv6 数据包的指针。客户可以随意修改其内容。如果函数失败，则返回值为 NULL。</returns>
         [DllImport(Const.WintunDll, EntryPoint = "WintunReceivePacket")]
-        public static extern byte* WintunReceivePacket(TunSession* Session,ref uint PacketSize);
+        public static extern IntPtr WintunReceivePacket(IntPtr Session,ref int PacketSize);
         /// <summary>
         /// 在客户端处理收到的数据包后释放内部缓冲区。此函数是线程安全的。
         /// </summary>
         /// <param name="Session">使用 WintunStartSession 获取的 Wintun 会话句柄</param>
         /// <param name="Packet">使用 WintunReceivePacket 获取的数据包</param>
         [DllImport(Const.WintunDll, EntryPoint = "WintunReleaseReceivePacket")]
-        public static extern void WintunReleaseReceivePacket(TunSession* Session, byte* Packet);
+        public static extern void WintunReleaseReceivePacket(IntPtr Session, IntPtr Packet);
         //BYTE* WintunAllocateSendPacket (WINTUN_SESSION_HANDLE Session, DWORD PacketSize)
         /// <summary>
         /// 为要发送的数据包分配内存。内存中填满数据包数据后，调用 WintunSendPacket 发送并释放内部缓冲区。
@@ -157,7 +158,7 @@ namespace WintunWrapper
         /// 若要获取扩展的错误信息，请调用 GetLastError。可能的错误包括：ERROR_HANDLE_EOF Wintun 适配器正在终止;ERROR_BUFFER_OVERFLOW Wintun 缓冲区已满;
         /// </returns>
         [DllImport(Const.WintunDll, EntryPoint = "WintunReleaseReceivePacket")]
-        public static extern byte* WintunAllocateSendPacket(TunSession* Session, uint PacketSize);
+        public static extern IntPtr WintunAllocateSendPacket(IntPtr Session, uint PacketSize);
 
         /// <summary>
         /// 发送数据包并释放内部缓冲区。WintunSendPacket 是线程安全的，但调用的 WintunAllocateSendPacket 顺序定义数据包发送顺序。
@@ -166,7 +167,10 @@ namespace WintunWrapper
         /// <param name="Session">使用 WintunStartSession 获取的 Wintun 会话句柄</param>
         /// <param name="Packet">使用 WintunAllocateSendPacket 获取的数据包</param>
         [DllImport(Const.WintunDll, EntryPoint = "WintunSendPacket")]
-        public static extern void WintunSendPacket(TunSession* Session, byte* Packet);
+        public static extern void WintunSendPacket(IntPtr Session, IntPtr Packet);
+
+        [DllImport("Kernel32.dll", EntryPoint = "GetLastError")]
+        public static extern long GetLastError();
 
         public static IntPtr GetPtr<T>(this T? valueObj)where T:struct
         {

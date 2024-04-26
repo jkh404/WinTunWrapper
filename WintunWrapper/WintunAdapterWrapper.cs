@@ -1,20 +1,28 @@
 ﻿using System;
+using System.Buffers;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace WintunWrapper
 {
+
     public class WintunAdapterWrapper:IDisposable
     {
         public delegate void WintunLoggerCallBack(WintunLoggerLevel loggerLevel, DateTime dateTime, string? Message);
-        public event WintunLoggerCallBack? OnLog;
+        public delegate void ReceiveCallBack(Span<byte> data);
+        public WintunLoggerCallBack? OnLog;
+        public ReceiveCallBack? OnReceive;
         private IntPtr _AdapterPtr=IntPtr.Zero;
         public readonly string Name;
         public readonly string TunnelType;
-
         public bool IsOpen { get; private set; }
+        private IntPtr _SessionPrt;
+        public bool IsStart { get; private set; }
+        public uint SessionCapacity { get; set; } = 1024*1024*1;
         private bool disposedValue;
-
+        private bool IsQuit=false;
+        private Thread receiveThread;
         private WintunAdapterWrapper(IntPtr adapterPtr, string name,string tunnelType, bool isOpen)
         {
             if (adapterPtr==IntPtr.Zero) throw new ArgumentNullException(nameof(adapterPtr));
@@ -22,20 +30,105 @@ namespace WintunWrapper
             Name=name;
             TunnelType=tunnelType;
             IsOpen=isOpen;
-            if(IsOpen) WintunAPI.WintunSetLogger(DefaultWintunLoggerCallBack);
+            WintunAPI.WintunSetLogger(DefaultWintunLoggerCallBack);
+
         }
-        public void Open()
+        private void ReceivePacket(object? obj)
+        {
+            while (!IsQuit)
+            {
+                while (IsOpen && IsStart && _SessionPrt!=IntPtr.Zero)
+                {
+                    try
+                    {
+                        IntPtr quitEventPtr = WintunAPI.WintunGetReadWaitEvent(_SessionPrt);
+                        AutoResetEvent quitEvent = new AutoResetEvent(false);
+                        quitEvent.SafeWaitHandle = new Microsoft.Win32.SafeHandles.SafeWaitHandle(quitEventPtr, false);
+                        int PacketDataSize = 0;
+                        var dataPtr=WintunAPI.WintunReceivePacket(_SessionPrt,ref PacketDataSize);
+                        if (PacketDataSize>0 && dataPtr!=IntPtr.Zero)
+                        {
+                            byte[] data=ArrayPool<byte>.Shared.Rent(PacketDataSize);
+                            Marshal.Copy(dataPtr, data, 0, PacketDataSize);
+                            OnReceive?.Invoke(data.AsSpan(0, PacketDataSize));
+                            ArrayPool<byte>.Shared.Return(data);
+                            WintunAPI.WintunReleaseReceivePacket(_SessionPrt, dataPtr);
+                        }
+                        else
+                        {
+                            var errCode = WintunAPI.GetLastError();
+                            switch (errCode)
+                            {
+                                case Const.ERROR_NO_MORE_ITEMS:
+                                    quitEvent.WaitOne(-1, true);
+                                    break;
+                                default:
+                                    break;
+                            }
+                        }
+
+                        
+                    }
+                    catch 
+                    {
+
+                    }
+                }
+                Thread.Sleep(1000);
+            }
+        }
+        public void Open(uint? sessionCapacity=null)
         {
             _AdapterPtr=WintunAPI.WintunOpenAdapter(Name);
             if (_AdapterPtr!=IntPtr.Zero) IsOpen=true;
-            if (IsOpen) WintunAPI.WintunSetLogger(DefaultWintunLoggerCallBack);
+            if (IsOpen)
+            {
+                StartSession(sessionCapacity??SessionCapacity);
+            }
         }
+        /// <summary>
+        /// 阻塞启动
+        /// </summary>
+        public void Start()
+        {
+            ReceivePacket(null);
+        }
+        /// <summary>
+        /// 不阻塞启动
+        /// </summary>
+        public  void StartAsync()
+        {
+            receiveThread= new Thread(ReceivePacket);
+            receiveThread.IsBackground=true;
+            receiveThread.Start();
+        }
+
         public void Close()
         {
             if (_AdapterPtr==IntPtr.Zero) throw new InvalidOperationException();
+            EndSession();
             WintunAPI.WintunCloseAdapter(_AdapterPtr);
-            IsOpen=false;
+            _AdapterPtr=IntPtr.Zero;
+            IsOpen =false;
         }
+        private bool StartSession(uint Capacity=1024*1024*1)
+        {
+            if (_AdapterPtr==IntPtr.Zero) throw new InvalidOperationException();
+            if(!IsOpen) throw new InvalidOperationException();
+            _SessionPrt=WintunAPI.WintunStartSession(_AdapterPtr, Capacity);
+            if (_SessionPrt==IntPtr.Zero) return false;
+            IsStart =true;
+            return true;
+        }
+
+        private void EndSession()
+        {
+            if (!IsStart) throw new InvalidOperationException();
+            WintunAPI.WintunEndSession(_SessionPrt);
+            _SessionPrt=IntPtr.Zero;
+            IsStart =false;
+        }
+
         public NetLUIDLH? GetLUID()
         {
             if (_AdapterPtr==IntPtr.Zero) throw new InvalidOperationException();
@@ -47,16 +140,17 @@ namespace WintunWrapper
             }
             else
             {
-                //// 假设你的 IntPtr 对象叫做 quitEventPtr
-                //IntPtr quitEventPtr = IntPtr.Zero; // 你的 IntPtr 对象
-
-                //// 创建一个 AutoResetEvent 对象，并将其 SafeWaitHandle 属性设置为你的 IntPtr 对象
-                //AutoResetEvent quitEvent = new AutoResetEvent(false);
-                //quitEvent.SafeWaitHandle = new Microsoft.Win32.SafeHandles.SafeWaitHandle(quitEventPtr, false);
-                //// 等待 quitEvent
-                //bool signaled = quitEvent.WaitOne(1000); // 等待 1 秒
                 return null;
             }
+        }
+        public void SendPacket(byte[] packetData)
+        {
+            if(packetData==null)throw new ArgumentNullException(nameof(packetData));
+            if(packetData.Length==0) throw new ArgumentException(nameof(packetData));
+            uint dataSize = (uint)packetData.Length;
+            IntPtr dataPtr=WintunAPI.WintunAllocateSendPacket(_SessionPrt, dataSize);
+            Marshal.Copy(packetData, 0, dataPtr, packetData.Length);
+            WintunAPI.WintunSendPacket(_SessionPrt, dataPtr);
         }
         public int GetRunningDriverVersion()
         {
@@ -99,16 +193,26 @@ namespace WintunWrapper
                 if (disposing)
                 {
                     // TODO: 释放托管状态(托管对象)
+                    IsQuit = true;
                 }
                 
                 // TODO: 释放未托管的资源(未托管的对象)并重写终结器
                 // TODO: 将大型字段设置为 null
                 disposedValue=true;
+                if (_SessionPrt!=IntPtr.Zero)
+                {
+                    IsStart=false;
+                    WintunAPI.WintunEndSession(_SessionPrt);
+                    _SessionPrt=IntPtr.Zero;
+                    
+                }
                 if (_AdapterPtr!=IntPtr.Zero)
                 {
+                    IsOpen=false;
                     WintunAPI.WintunCloseAdapter(_AdapterPtr);
                     _AdapterPtr=IntPtr.Zero;
                 }
+
             }
         }
 
