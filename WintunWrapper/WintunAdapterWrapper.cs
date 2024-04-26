@@ -67,13 +67,13 @@ namespace WintunWrapper
         private void DefaultWintunLoggerCallBack(WintunLoggerLevel loggerLevel, long timestamp, IntPtr Message)
         {
 
-            var now = new DateTime(1601, 1, 1, 0, 0, 0, DateTimeKind.Local).AddTicks(timestamp);
+            var now = new DateTime(1601, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddTicks(timestamp);
             string? msg=null;
             if (Message!=IntPtr.Zero)
             {
                 msg=Marshal.PtrToStringUni(Message);
             }
-            OnLog?.Invoke(loggerLevel, now, msg);
+            OnLog?.Invoke(loggerLevel, now.ToLocalTime(), msg);
         }
 
         public static WintunAdapterWrapper Create(string Name="Default", string TunnelType= "Default", Guid? RequestedGUID=null)
