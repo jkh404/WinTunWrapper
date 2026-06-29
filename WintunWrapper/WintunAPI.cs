@@ -134,7 +134,7 @@ namespace WintunWrapper
         /// 如果函数失败，则返回值为 NULL。
         /// 若要获取扩展的错误信息，请调用 GetLastError。可能的错误包括：ERROR_HANDLE_EOF Wintun 适配器正在终止;ERROR_BUFFER_OVERFLOW Wintun 缓冲区已满;
         /// </returns>
-        [DllImport(Const.WintunDll, EntryPoint = "WintunReleaseReceivePacket")]
+        [DllImport(Const.WintunDll, EntryPoint = "WintunAllocateSendPacket")]
         public static extern IntPtr WintunAllocateSendPacket(IntPtr Session, uint PacketSize);
 
         /// <summary>

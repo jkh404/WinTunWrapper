@@ -9,3 +9,5 @@
 /WintunWrapper/Properties/PublishProfiles
 /WintunWrapper/bin/x64/Debug
 /WintunWrapper/bin/Debug
+**/[Bb]in/
+**/[Oo]bj/

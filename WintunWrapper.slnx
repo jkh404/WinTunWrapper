@@ -1,0 +1,13 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+  </Configurations>
+  <Project Path="ProxyNetworker.Client/ProxyNetworker.Client.csproj" Id="c2914503-8399-4911-97ef-366ad0c22f1e" />
+  <Project Path="ProxyNetworker.Core/ProxyNetworker.Core.csproj" Id="50220f03-3b8e-4cba-89b6-e57eccbfcf49" />
+  <Project Path="ProxyNetworker.Server/ProxyNetworker.Server.csproj" Id="78dd0593-ef5b-4461-a5e0-f9f81820cd6e" />
+  <Project Path="TestConsole/TestConsole.csproj" />
+  <Project Path="WintunWrapper/WintunWrapper.csproj">
+    <Platform Solution="*|x64" Project="x64" />
+  </Project>
+</Solution>

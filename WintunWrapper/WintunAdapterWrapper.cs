@@ -99,22 +99,22 @@ namespace WintunWrapper
         /// <summary>
         /// 阻塞启动
         /// </summary>
-        public void Start(IPAddress iPAddress,uint? sessionCapacity = null)
+        public void Start(IPAddress iPAddress,uint? sessionCapacity = null, byte onLinkPrefixLength = 24)
         {
             if (IsOpen)
             {
-                StartSession(iPAddress,sessionCapacity??SessionCapacity);
+                StartSession(iPAddress,sessionCapacity??SessionCapacity, onLinkPrefixLength);
             }
             ReceivePacket(null);
         }
         /// <summary>
         /// 不阻塞启动
         /// </summary>
-        public  void StartAsync(IPAddress iPAddress,uint? sessionCapacity = null)
+        public  void StartAsync(IPAddress iPAddress,uint? sessionCapacity = null, byte onLinkPrefixLength = 24)
         {
             if (IsOpen)
             {
-                StartSession(iPAddress,sessionCapacity??SessionCapacity);
+                StartSession(iPAddress,sessionCapacity??SessionCapacity, onLinkPrefixLength);
             }
             receiveThread= new Thread(ReceivePacket);
             receiveThread.IsBackground=true;
@@ -129,11 +129,11 @@ namespace WintunWrapper
             _AdapterPtr=IntPtr.Zero;
             IsOpen =false;
         }
-        private bool StartSession(IPAddress iPAddress,uint Capacity=1024*1024*1)
+        private bool StartSession(IPAddress iPAddress,uint Capacity=1024*1024*1, byte onLinkPrefixLength = 24)
         {
             if (_AdapterPtr==IntPtr.Zero) throw new InvalidOperationException();
             if(!IsOpen) throw new InvalidOperationException();
-            if(!(Capacity>=Const.WINTUN_MIN_RING_CAPACITY && Capacity<=Const.WINTUN_MAX_RING_CAPACITY && Capacity%2==0))
+            if(!(Capacity>=Const.WINTUN_MIN_RING_CAPACITY && Capacity<=Const.WINTUN_MAX_RING_CAPACITY && (Capacity & (Capacity - 1)) == 0))
                 throw new ArgumentException(nameof(Capacity));
             MIB_UNICASTIPADDRESS_ROW AddressRow;
             InitializeUnicastIpAddressEntry(out AddressRow);
@@ -142,7 +142,7 @@ namespace WintunWrapper
             AddressRow.InterfaceLuid=LUIDPtr.ToStruct<NET_LUID>()!.Value;
             AddressRow.Address.Ipv4.sin_family=ADDRESS_FAMILY.AF_INET;
             AddressRow.Address.Ipv4.sin_addr=new IN_ADDR(iPAddress.GetAddressBytes());
-            AddressRow.OnLinkPrefixLength = 24;
+            AddressRow.OnLinkPrefixLength = onLinkPrefixLength;
             AddressRow.DadState=NL_DAD_STATE.IpDadStatePreferred;
             CreateUnicastIpAddressEntry(ref AddressRow);
             _SessionPrt =WintunAPI.WintunStartSession(_AdapterPtr, Capacity);
@@ -179,6 +179,7 @@ namespace WintunWrapper
             if(packetData.Length==0) throw new ArgumentException(nameof(packetData));
             uint dataSize = (uint)packetData.Length;
             IntPtr dataPtr=WintunAPI.WintunAllocateSendPacket(_SessionPrt, dataSize);
+            if(dataPtr==IntPtr.Zero) throw new InvalidOperationException($"WintunAllocateSendPacket failed. ErrorCode={WintunAPI.GetLastError()}");
             Marshal.Copy(packetData, 0, dataPtr, packetData.Length);
             WintunAPI.WintunSendPacket(_SessionPrt, dataPtr);
         }
