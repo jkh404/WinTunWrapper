@@ -14,7 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\WintunWrapper\WintunWrapper.csproj" />
+    <ProjectReference Include="..\ProxyNetworker.Core\ProxyNetworker.Core.csproj" />
   </ItemGroup>
 
 </Project>

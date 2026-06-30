@@ -1,8 +1,9 @@
-using WintunWrapper;
 using System.Net.Sockets;
+using System.Runtime.Versioning;
 
 namespace ProxyNetworker.Core.Platforms.Windows;
 
+[SupportedOSPlatform("windows")]
 internal sealed class WintunTunDevice : ITunDevice
 {
     private readonly TunDeviceOptions _options;

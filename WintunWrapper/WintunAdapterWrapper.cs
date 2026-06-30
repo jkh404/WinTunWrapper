@@ -3,6 +3,7 @@ using System.Buffers;
 using System.Diagnostics;
 using System.Net;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
 using static Vanara.PInvoke.IpHlpApi;
@@ -11,6 +12,7 @@ using static Vanara.PInvoke.Ws2_32;
 namespace WintunWrapper
 {
 
+    [SupportedOSPlatform("windows")]
     public class WintunAdapterWrapper:IDisposable
     {
         public delegate void WintunLoggerCallBack(WintunLoggerLevel loggerLevel, DateTime dateTime, string? Message);

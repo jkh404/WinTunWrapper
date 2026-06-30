@@ -46,4 +46,5 @@ public sealed record TunnelSummary(
     string? Protocol,
     string PublicEndpoint,
     string? PrivateService,
-    DateTimeOffset StartedAt);
+    DateTimeOffset StartedAt,
+    string Status);

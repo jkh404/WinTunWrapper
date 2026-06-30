@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ProxyNetworker 管理后台</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main id="loginView" class="login-shell">
+    <section class="login-panel">
+      <div>
+        <p class="eyebrow">ProxyNetworker</p>
+        <h1>管理后台</h1>
+        <p class="muted">登录后管理账号、配额、虚拟局域网和内网穿透访问令牌。</p>
+      </div>
+      <form id="loginForm" class="stack">
+        <label>
+          账号
+          <input name="username" autocomplete="username" value="sky" required>
+        </label>
+        <label>
+          密码
+          <input name="password" type="password" autocomplete="current-password" value="sky.123" required>
+        </label>
+        <button type="submit" class="primary">登录</button>
+        <p id="loginError" class="error"></p>
+      </form>
+    </section>
+  </main>
+
+  <main id="appView" class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="brand">
+        <strong>ProxyNetworker</strong>
+        <span id="sessionLabel"></span>
+      </div>
+      <nav class="nav">
+        <button data-tab="overview" class="active">总览</button>
+        <button data-tab="users" data-admin-only>用户</button>
+        <button data-tab="virtualNetworks">虚拟局域网</button>
+        <button data-tab="portTunnels">内网穿透</button>
+        <button data-tab="tokens">访问 Token</button>
+      </nav>
+      <div class="sidebar-actions">
+        <button id="changePasswordButton">修改密码</button>
+        <button id="logoutButton">退出</button>
+      </div>
+    </aside>
+
+    <section class="workspace">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Management</p>
+          <h2 id="pageTitle">总览</h2>
+        </div>
+        <p id="statusText" class="status-text"></p>
+      </header>
+
+      <section id="overviewTab" class="tab-panel active">
+        <div class="metric-grid">
+          <div class="metric"><span>用户</span><strong id="metricUsers">-</strong></div>
+          <div class="metric"><span>虚拟局域网</span><strong id="metricNetworks">-</strong></div>
+          <div class="metric"><span>内网穿透</span><strong id="metricTunnels">-</strong></div>
+          <div class="metric"><span>访问 Token</span><strong id="metricTokens">-</strong></div>
+        </div>
+        <div class="section-row">
+          <section>
+            <h3>运行中隧道</h3>
+            <table>
+              <thead><tr><th>名称</th><th>类型</th><th>协议</th><th>入口</th><th>状态</th></tr></thead>
+              <tbody id="runtimeTunnelRows"></tbody>
+            </table>
+          </section>
+        </div>
+      </section>
+
+      <section id="usersTab" class="tab-panel">
+        <form id="userForm" class="form-grid">
+          <input name="username" placeholder="账号" required>
+          <input name="password" placeholder="初始密码" required>
+          <select name="role"><option value="User">普通用户</option><option value="Admin">管理员</option></select>
+          <input name="maxVirtualNetworks" type="number" min="0" value="1" title="虚拟局域网数量">
+          <input name="maxPortTunnels" type="number" min="0" value="3" title="隧道数量">
+          <input name="portRangeStart" type="number" min="1" max="65535" value="20000" title="端口起始">
+          <input name="portRangeEnd" type="number" min="1" max="65535" value="30000" title="端口结束">
+          <input name="bandwidthLimitBytes" type="number" min="0" value="0" title="带宽总量字节，0 为不限">
+          <input name="maxTrafficSpeedBytesPerSecond" type="number" min="0" value="0" title="最高速度字节/秒，0 为不限">
+          <button type="submit" class="primary">创建用户</button>
+        </form>
+        <table>
+          <thead><tr><th>账号</th><th>角色</th><th>状态</th><th>虚拟网</th><th>隧道</th><th>端口范围</th><th>限速</th><th>操作</th></tr></thead>
+          <tbody id="userRows"></tbody>
+        </table>
+      </section>
+
+      <section id="virtualNetworksTab" class="tab-panel">
+        <form id="virtualNetworkForm" class="form-grid compact">
+          <input name="name" placeholder="名称" required>
+          <input name="gatewayAddress" placeholder="网关地址" value="10.66.0.1" required>
+          <input name="prefixLength" type="number" min="1" max="32" value="24" required>
+          <button type="submit" class="primary">创建虚拟局域网</button>
+        </form>
+        <table>
+          <thead><tr><th>名称</th><th>网关</th><th>前缀</th><th>所有者</th><th>创建时间</th><th>操作</th></tr></thead>
+          <tbody id="virtualNetworkRows"></tbody>
+        </table>
+      </section>
+
+      <section id="portTunnelsTab" class="tab-panel">
+        <form id="portTunnelForm" class="form-grid compact">
+          <input name="name" placeholder="名称" required>
+          <select name="protocol"><option value="tcp">TCP</option><option value="udp">UDP</option></select>
+          <input name="privateHost" placeholder="内网地址" value="127.0.0.1" required>
+          <input name="privatePort" type="number" min="1" max="65535" placeholder="内网端口" required>
+          <button type="submit" class="primary">创建内网穿透</button>
+        </form>
+        <table>
+          <thead><tr><th>名称</th><th>协议</th><th>内网端口</th><th>服务器端口</th><th>限速</th><th>操作</th></tr></thead>
+          <tbody id="portTunnelRows"></tbody>
+        </table>
+      </section>
+
+      <section id="tokensTab" class="tab-panel">
+        <div class="toolbar">
+          <select id="tokenResourceKind"><option value="VirtualNetwork">虚拟局域网</option><option value="PortTunnel">内网穿透</option></select>
+          <select id="tokenResourceSelect"></select>
+          <select id="tokenType"><option value="Permanent">永久</option><option value="Limited">限期</option><option value="OneTime">一次性</option></select>
+          <input id="tokenValidFrom" type="datetime-local">
+          <input id="tokenValidUntil" type="datetime-local">
+          <button id="createTokenButton" class="primary">创建 Token</button>
+        </div>
+        <p id="plainTokenBox" class="token-box hidden"></p>
+        <table>
+          <thead><tr><th>资源</th><th>类型</th><th>预览</th><th>时间段</th><th>状态</th></tr></thead>
+          <tbody id="tokenRows"></tbody>
+        </table>
+      </section>
+    </section>
+  </main>
+
+  <dialog id="passwordDialog">
+    <form id="passwordForm" method="dialog" class="stack dialog-body">
+      <h3>修改密码</h3>
+      <input name="currentPassword" type="password" placeholder="当前密码" required>
+      <input name="newPassword" type="password" placeholder="新密码" required>
+      <div class="dialog-actions">
+        <button id="cancelPasswordButton" type="button" value="cancel">取消</button>
+        <button class="primary" type="submit" value="default">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/app.js"></script>
+</body>
+</html>

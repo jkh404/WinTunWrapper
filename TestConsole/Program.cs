@@ -3,9 +3,12 @@ using System.Management;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
-using WintunWrapper;
+using ProxyNetworker.Core.Platforms.Windows;
 using System.Linq;
 using System.Collections;
+using System.Runtime.Versioning;
+
+[assembly: SupportedOSPlatform("windows")]
 
 using WintunAdapterWrapper wintun = WintunAdapterWrapper.Create();
 wintun.OnLog=Wintun_OnLog;

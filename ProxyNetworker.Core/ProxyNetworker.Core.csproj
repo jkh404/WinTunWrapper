@@ -8,7 +8,46 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\WintunWrapper\WintunWrapper.csproj" />
+    <PackageReference Include="Vanara.PInvoke.IpHlpApi" Version="5.0.5" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(RuntimeIdentifier)'=='win-x86' Or '$(Platform)'=='x86'">
+    <Content Include="Platforms\Windows\Wintun\DLL\win-x86\wintun.dll">
+      <Link>wintun.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(RuntimeIdentifier)'=='win-x64' Or '$(Platform)'=='x64' Or ('$(RuntimeIdentifier)'=='' And '$(Platform)'!='x86' And '$(Platform)'!='x64' And '$(Platform)'!='arm' And '$(Platform)'!='arm64')">
+    <Content Include="Platforms\Windows\Wintun\DLL\win-x64\wintun.dll">
+      <Link>wintun.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(RuntimeIdentifier)'=='win-arm' Or '$(Platform)'=='arm'">
+    <Content Include="Platforms\Windows\Wintun\DLL\win-arm\wintun.dll">
+      <Link>wintun.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(RuntimeIdentifier)'=='win-arm64' Or '$(Platform)'=='arm64'">
+    <Content Include="Platforms\Windows\Wintun\DLL\win-arm64\wintun.dll">
+      <Link>wintun.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Platforms\Windows\Wintun\DLL\win-x64\wintun.dll" Pack="true" PackagePath="runtimes/win-x64/native" />
+    <None Include="Platforms\Windows\Wintun\DLL\win-x86\wintun.dll" Pack="true" PackagePath="runtimes/win-x86/native" />
+    <None Include="Platforms\Windows\Wintun\DLL\win-arm\wintun.dll" Pack="true" PackagePath="runtimes/win-arm/native" />
+    <None Include="Platforms\Windows\Wintun\DLL\win-arm64\wintun.dll" Pack="true" PackagePath="runtimes/win-arm64/native" />
   </ItemGroup>
 
 </Project>

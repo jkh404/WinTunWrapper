@@ -1,25 +1,45 @@
 using System.Collections.Concurrent;
 using System.Net;
+using Microsoft.EntityFrameworkCore;
 using ProxyNetworker.Core;
 using ProxyNetworker.Core.PortTunnels;
+using ProxyNetworker.Server.Data;
 
 namespace ProxyNetworker.Server.Management;
 
 public sealed class TunnelRegistry : IDisposable
 {
     private readonly ConcurrentDictionary<string, ActiveTunnel> _tunnels = new(StringComparer.OrdinalIgnoreCase);
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<TunnelRegistry> _logger;
 
-    public TunnelRegistry(ILogger<TunnelRegistry> logger)
+    public TunnelRegistry(IServiceScopeFactory scopeFactory, ILogger<TunnelRegistry> logger)
     {
+        _scopeFactory = scopeFactory;
         _logger = logger;
     }
 
-    public IReadOnlyCollection<TunnelSummary> List()
+    public async Task<IReadOnlyCollection<TunnelSummary>> ListAsync(CancellationToken cancellationToken = default)
     {
-        return _tunnels.Values
-            .Select(static item => item.Summary)
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ProxyNetworkerDbContext>();
+
+        var records = await db.Tunnels
+            .AsNoTracking()
+            .ToArrayAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return records
             .OrderBy(static item => item.StartedAt)
+            .Select(static item => new TunnelSummary(
+                item.Id,
+                item.Name,
+                item.Kind,
+                item.Protocol,
+                item.PublicEndpoint,
+                item.PrivateService,
+                item.StartedAt,
+                item.Status))
             .ToArray();
     }
 
@@ -52,9 +72,10 @@ public sealed class TunnelRegistry : IDisposable
             Protocol: protocol.ToString().ToLowerInvariant(),
             PublicEndpoint: publicEndpoint.ToString(),
             PrivateService: privateService.ToString(),
-            StartedAt: DateTimeOffset.UtcNow);
+            StartedAt: DateTimeOffset.UtcNow,
+            Status: "running");
 
-        Add(summary, tunnel);
+        await AddAsync(summary, tunnel, cancellationToken).ConfigureAwait(false);
         return summary;
     }
 
@@ -86,7 +107,10 @@ public sealed class TunnelRegistry : IDisposable
                 tunDevice,
                 new VirtualNetworkTunnelOptions
                 {
-                    BindEndPoint = listen
+                    BindEndPoint = listen,
+                    NodeAddress = tunAddress,
+                    PrefixLength = request.PrefixLength,
+                    NodeName = name
                 },
                 LogCoreEntry);
 
@@ -99,9 +123,10 @@ public sealed class TunnelRegistry : IDisposable
                 Protocol: "udp",
                 PublicEndpoint: listen.ToString(),
                 PrivateService: null,
-                StartedAt: DateTimeOffset.UtcNow);
+                StartedAt: DateTimeOffset.UtcNow,
+                Status: "running");
 
-            Add(summary, tunnel);
+            await AddAsync(summary, tunnel, cancellationToken).ConfigureAwait(false);
             return summary;
         }
         catch
@@ -112,7 +137,7 @@ public sealed class TunnelRegistry : IDisposable
         }
     }
 
-    public bool Stop(string id)
+    public async Task<bool> StopAsync(string id, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(id))
         {
@@ -125,6 +150,7 @@ public sealed class TunnelRegistry : IDisposable
         }
 
         activeTunnel.Runtime.Dispose();
+        await MarkStoppedAsync(id, cancellationToken).ConfigureAwait(false);
         return true;
     }
 
@@ -139,13 +165,60 @@ public sealed class TunnelRegistry : IDisposable
         }
     }
 
-    private void Add(TunnelSummary summary, IDisposable runtime)
+    private async Task AddAsync(TunnelSummary summary, IDisposable runtime, CancellationToken cancellationToken)
     {
         if (!_tunnels.TryAdd(summary.Id, new ActiveTunnel(summary, runtime)))
         {
             runtime.Dispose();
             throw new InvalidOperationException($"Tunnel id collision: {summary.Id}.");
         }
+
+        try
+        {
+            await InsertRecordAsync(summary, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            if (_tunnels.TryRemove(summary.Id, out var activeTunnel))
+            {
+                activeTunnel.Runtime.Dispose();
+            }
+
+            throw;
+        }
+    }
+
+    private async Task InsertRecordAsync(TunnelSummary summary, CancellationToken cancellationToken)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ProxyNetworkerDbContext>();
+        db.Tunnels.Add(new TunnelRecord
+        {
+            Id = summary.Id,
+            Name = summary.Name,
+            Kind = summary.Kind,
+            Protocol = summary.Protocol,
+            PublicEndpoint = summary.PublicEndpoint,
+            PrivateService = summary.PrivateService,
+            Status = summary.Status,
+            StartedAt = summary.StartedAt
+        });
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task MarkStoppedAsync(string id, CancellationToken cancellationToken)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ProxyNetworkerDbContext>();
+        var record = await db.Tunnels.FindAsync([id], cancellationToken).ConfigureAwait(false);
+        if (record is null)
+        {
+            return;
+        }
+
+        record.Status = "stopped";
+        record.StoppedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static PortTunnelProtocol ParseProtocol(string protocol)

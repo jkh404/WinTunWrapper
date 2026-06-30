@@ -54,7 +54,10 @@ using var tunnel = new VirtualNetworkTunnel(
     new VirtualNetworkTunnelOptions
     {
         BindEndPoint = new IPEndPoint(IPAddress.Any, bindPort),
-        RemoteEndPoint = remoteEndPoint
+        RemoteEndPoint = remoteEndPoint,
+        NodeAddress = tunAddress,
+        PrefixLength = prefixLength,
+        NodeName = name
     },
     WriteLog);
 
@@ -75,6 +78,11 @@ return 0;
 
 static async Task<int> RunPortTunnelAsync(string[] args)
 {
+    if (GetOption(args, "--server") is not null || GetOption(args, "--token") is not null)
+    {
+        return await RunRemotePortTunnelAsync(args);
+    }
+
     var protocol = ParseProtocol(GetOption(args, "--protocol") ?? "tcp");
     var listen = ParseIPEndPoint(GetOption(args, "--listen") ?? "127.0.0.1:8080");
     var targetValue = GetOption(args, "--target");
@@ -114,6 +122,33 @@ static async Task<int> RunPortTunnelAsync(string[] args)
     {
     }
 
+    return 0;
+}
+
+static async Task<int> RunRemotePortTunnelAsync(string[] args)
+{
+    var server = GetOption(args, "--server") ?? GetPositional(args, 0);
+    var token = GetOption(args, "--token");
+    if (string.IsNullOrWhiteSpace(server) || string.IsNullOrWhiteSpace(token))
+    {
+        PrintUsage();
+        return 2;
+    }
+
+    var endpoint = BuildPortTunnelWebSocketEndpoint(server);
+
+    using var shutdown = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, eventArgs) =>
+    {
+        eventArgs.Cancel = true;
+        shutdown.Cancel();
+    };
+
+    using var client = new RemotePortTunnelClient(endpoint, token, WriteLog);
+    Console.WriteLine($"ProxyNetworker remote Port Tunnel connecting to {endpoint}.");
+    Console.WriteLine("Press Ctrl+C to stop.");
+
+    await client.RunAsync(shutdown.Token);
     return 0;
 }
 
@@ -208,6 +243,26 @@ static (string Host, int Port) SplitHostPort(string value)
     return (host, port);
 }
 
+static Uri BuildPortTunnelWebSocketEndpoint(string server)
+{
+    var value = server.Contains("://", StringComparison.Ordinal)
+        ? server
+        : $"http://{server}";
+    var baseUri = new Uri(value.EndsWith("/", StringComparison.Ordinal) ? value : $"{value}/");
+    var endpoint = new Uri(baseUri, "api/client/port-tunnels/connect");
+    var builder = new UriBuilder(endpoint)
+    {
+        Scheme = baseUri.Scheme.ToLowerInvariant() switch
+        {
+            "https" => "wss",
+            "wss" => "wss",
+            _ => "ws"
+        }
+    };
+
+    return builder.Uri;
+}
+
 static void WriteLog(ProxyNetworkerLogEntry entry)
 {
     Console.WriteLine($"[{entry.Timestamp:O}] {entry.Level}: {entry.Message}");
@@ -220,5 +275,6 @@ static void WriteLog(ProxyNetworkerLogEntry entry)
 static void PrintUsage()
 {
     Console.WriteLine("Virtual Network: ProxyNetworker.Client --server <host> [--port 51820] [--tun-address 10.66.0.2] [--prefix 24] [--name pn-client]");
-    Console.WriteLine("Port Tunnel:     ProxyNetworker.Client port-tunnel --protocol tcp|udp --listen 127.0.0.1:8080 --target 127.0.0.1:80 [--name web]");
+    Console.WriteLine("Remote Tunnel:   ProxyNetworker.Client port-tunnel --server http://server:5000 --token ptun_xxx");
+    Console.WriteLine("Local Tunnel:    ProxyNetworker.Client port-tunnel --protocol tcp|udp --listen 127.0.0.1:8080 --target 127.0.0.1:80 [--name web]");
 }
