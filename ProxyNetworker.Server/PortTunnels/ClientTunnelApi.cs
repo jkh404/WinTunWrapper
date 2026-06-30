@@ -1,4 +1,6 @@
 using System.Net.WebSockets;
+using ProxyNetworker.Server.Management;
+using ProxyNetworker.Server.VirtualNetworks;
 
 namespace ProxyNetworker.Server.PortTunnels;
 
@@ -7,6 +9,7 @@ public static class ClientTunnelApi
     public static IEndpointRouteBuilder MapClientTunnelApi(this IEndpointRouteBuilder app)
     {
         app.MapGet("/api/client/port-tunnels/connect", ConnectPortTunnelClient).AllowAnonymous();
+        app.MapGet("/api/client/virtual-networks/config", GetVirtualNetworkClientConfig).AllowAnonymous();
         return app;
     }
 
@@ -62,6 +65,50 @@ public static class ClientTunnelApi
         return request.Query.TryGetValue("token", out var queryToken)
             ? queryToken.ToString()
             : string.Empty;
+    }
+
+    private static async Task<IResult> GetVirtualNetworkClientConfig(
+        HttpContext httpContext,
+        VirtualNetworkAccessService accessService,
+        VirtualNetworkRuntimeRegistry runtimeRegistry)
+    {
+        var token = ReadToken(httpContext.Request);
+        var grant = await accessService.ValidateVirtualNetworkTokenAsync(token, httpContext.RequestAborted).ConfigureAwait(false);
+        if (grant is null)
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        try
+        {
+            await runtimeRegistry.EnsureRunningAsync(grant.Definition, httpContext.RequestAborted).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or PlatformNotSupportedException or UnauthorizedAccessException)
+        {
+            return TypedResults.BadRequest(new ErrorResponse(ex.Message));
+        }
+
+        return TypedResults.Ok(new VirtualNetworkClientConfigResponse(
+            grant.Definition.Id,
+            grant.Definition.Name,
+            ResolveServerHost(httpContext.Request),
+            grant.Definition.ListenPort,
+            grant.Definition.GatewayAddress,
+            grant.ClientAddress.ToString(),
+            grant.Definition.PrefixLength,
+            grant.Definition.Mtu));
+    }
+
+    private static string ResolveServerHost(HttpRequest request)
+    {
+        if (!request.Headers.TryGetValue("X-Forwarded-Host", out var forwardedHost) ||
+            string.IsNullOrWhiteSpace(forwardedHost.ToString()))
+        {
+            return request.Host.Host;
+        }
+
+        var firstHost = forwardedHost.ToString().Split(',')[0].Trim();
+        return HostString.FromUriComponent(firstHost).Host;
     }
 
     private static async Task CloseWebSocketAsync(WebSocket webSocket, WebSocketCloseStatus status, string description, CancellationToken cancellationToken)

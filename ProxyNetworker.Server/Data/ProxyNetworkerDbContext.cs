@@ -19,6 +19,8 @@ public sealed class ProxyNetworkerDbContext : DbContext
 
     public DbSet<AccessTokenRecord> AccessTokens => Set<AccessTokenRecord>();
 
+    public DbSet<SystemSettingsRecord> SystemSettings => Set<SystemSettingsRecord>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         var tunnel = modelBuilder.Entity<TunnelRecord>();
@@ -48,6 +50,7 @@ public sealed class ProxyNetworkerDbContext : DbContext
         virtualNetwork.Property(item => item.Name).HasMaxLength(128).IsRequired();
         virtualNetwork.Property(item => item.GatewayAddress).HasMaxLength(64).IsRequired();
         virtualNetwork.HasIndex(item => item.OwnerUserId);
+        virtualNetwork.HasIndex(item => item.ListenPort);
 
         var portTunnel = modelBuilder.Entity<PortTunnelDefinitionRecord>();
         portTunnel.HasKey(item => item.Id);
@@ -65,10 +68,15 @@ public sealed class ProxyNetworkerDbContext : DbContext
         accessToken.Property(item => item.ScopeKind).HasMaxLength(32).IsRequired();
         accessToken.Property(item => item.ResourceId).HasMaxLength(32).IsRequired();
         accessToken.Property(item => item.TokenHash).HasMaxLength(128).IsRequired();
+        accessToken.Property(item => item.ProtectedTokenValue).HasMaxLength(2048);
         accessToken.Property(item => item.TokenPreview).HasMaxLength(24).IsRequired();
         accessToken.Property(item => item.TokenType).HasMaxLength(32).IsRequired();
         accessToken.Property(item => item.CreatedByUserId).HasMaxLength(32).IsRequired();
         accessToken.HasIndex(item => item.TokenHash).IsUnique();
         accessToken.HasIndex(item => new { item.ScopeKind, item.ResourceId });
+
+        var systemSettings = modelBuilder.Entity<SystemSettingsRecord>();
+        systemSettings.HasKey(item => item.Id);
+        systemSettings.Property(item => item.Id).HasMaxLength(32);
     }
 }

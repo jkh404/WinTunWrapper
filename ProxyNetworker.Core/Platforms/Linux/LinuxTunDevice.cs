@@ -5,7 +5,7 @@ using Microsoft.Win32.SafeHandles;
 
 namespace ProxyNetworker.Core.Platforms.Linux;
 
-internal sealed class LinuxTunDevice : ITunDevice
+internal sealed partial class LinuxTunDevice : ITunDevice
 {
     private const int O_RDWR = 2;
     private const short IFF_TUN = 0x0001;
@@ -59,19 +59,14 @@ internal sealed class LinuxTunDevice : ITunDevice
 
         try
         {
-            var ifr = new IfReq
-            {
-                Name = _options.Name,
-                Flags = IFF_TUN | IFF_NO_PI,
-                Padding = new byte[22]
-            };
+            var ifr = IfReq.Create(_options.Name, IFF_TUN | IFF_NO_PI);
 
             if (ioctl(fd, TUNSETIFF, ref ifr) < 0)
             {
                 throw new InvalidOperationException($"Failed to create Linux TUN device '{_options.Name}'. errno={Marshal.GetLastWin32Error()}.");
             }
 
-            Name = ifr.Name.TrimEnd('\0');
+            Name = ifr.GetName();
             var handle = new SafeFileHandle(new IntPtr(fd), ownsHandle: true);
             fd = -1;
             _stream = new FileStream(handle, FileAccess.ReadWrite, MaxPacketSize, isAsync: true);
@@ -231,24 +226,60 @@ internal sealed class LinuxTunDevice : ITunDevice
         _logger?.Invoke(new ProxyNetworkerLogEntry(level, message, exception));
     }
 
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
-    private struct IfReq
+    [StructLayout(LayoutKind.Sequential)]
+    private unsafe struct IfReq
     {
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = IFNAMSIZ)]
-        public string Name;
+        public fixed byte Name[IFNAMSIZ];
 
         public short Flags;
 
-        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 22)]
-        public byte[] Padding;
+        public fixed byte Padding[22];
+
+        public static IfReq Create(string name, short flags)
+        {
+            var bytes = System.Text.Encoding.UTF8.GetBytes(name);
+            if (bytes.Length >= IFNAMSIZ)
+            {
+                throw new ArgumentException($"Linux interface names must be shorter than {IFNAMSIZ} bytes.", nameof(name));
+            }
+
+            var request = new IfReq
+            {
+                Flags = flags
+            };
+
+            for (var index = 0; index < bytes.Length; index++)
+            {
+                request.Name[index] = bytes[index];
+            }
+
+            return request;
+        }
+
+        public string GetName()
+        {
+            var length = 0;
+            while (length < IFNAMSIZ && Name[length] != 0)
+            {
+                length++;
+            }
+
+            var bytes = new byte[length];
+            for (var index = 0; index < length; index++)
+            {
+                bytes[index] = Name[index];
+            }
+
+            return System.Text.Encoding.UTF8.GetString(bytes);
+        }
     }
 
-    [DllImport("libc", SetLastError = true)]
-    private static extern int open(string pathname, int flags);
+    [LibraryImport("libc", EntryPoint = "open", StringMarshalling = StringMarshalling.Utf8, SetLastError = true)]
+    private static partial int open(string pathname, int flags);
 
-    [DllImport("libc", SetLastError = true)]
-    private static extern int ioctl(int fd, ulong request, ref IfReq ifr);
+    [LibraryImport("libc", EntryPoint = "ioctl", SetLastError = true)]
+    private static partial int ioctl(int fd, ulong request, ref IfReq ifr);
 
-    [DllImport("libc", SetLastError = true)]
-    private static extern int close(int fd);
+    [LibraryImport("libc", EntryPoint = "close", SetLastError = true)]
+    private static partial int close(int fd);
 }

@@ -1,9 +1,12 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
 using ProxyNetworker.Server.Management;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using ProxyNetworker.Server.Data;
 using ProxyNetworker.Server.PortTunnels;
 using ProxyNetworker.Server.Security;
+using ProxyNetworker.Server.VirtualNetworks;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -43,12 +46,23 @@ builder.Services.AddAuthorization(options =>
 builder.Services.AddDbContext<ProxyNetworkerDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("ProxyNetworker")
         ?? "Data Source=proxy-networker.db"));
+builder.Services.AddDataProtection()
+    .SetApplicationName("ProxyNetworker.Server")
+    .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(builder.Environment.ContentRootPath, "data-protection-keys")));
+builder.Services.AddOptions<SystemSettingsOptions>()
+    .BindConfiguration(SystemSettingsOptions.Section)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<SystemSettingsOptions>, SystemSettingsOptionsValidator>();
 builder.Services.AddHostedService<DatabaseInitializer>();
 builder.Services.AddSingleton<PasswordHasher>();
 builder.Services.AddSingleton<TokenGenerator>();
+builder.Services.AddSingleton<AccessTokenSecretProtector>();
 builder.Services.AddSingleton<TunnelRegistry>();
 builder.Services.AddSingleton<PortTunnelAccessService>();
 builder.Services.AddSingleton<RemotePortTunnelRegistry>();
+builder.Services.AddSingleton<VirtualNetworkAccessService>();
+builder.Services.AddSingleton<VirtualNetworkRuntimeRegistry>();
 
 var app = builder.Build();
 
@@ -71,11 +85,16 @@ app.MapClientTunnelApi();
 
 var tunnels = app.MapGroup("/api/tunnels").RequireAuthorization("AdminOnly");
 
-tunnels.MapGet("/", async (TunnelRegistry registry, RemotePortTunnelRegistry remoteRegistry, CancellationToken cancellationToken) =>
+tunnels.MapGet("/", async (
+    TunnelRegistry registry,
+    RemotePortTunnelRegistry remoteRegistry,
+    VirtualNetworkRuntimeRegistry virtualNetworkRegistry,
+    CancellationToken cancellationToken) =>
 {
     var local = await registry.ListAsync(cancellationToken);
     var remote = remoteRegistry.List();
-    return TypedResults.Ok(local.Concat(remote).OrderBy(item => item.StartedAt).ToArray());
+    var virtualNetworks = virtualNetworkRegistry.List();
+    return TypedResults.Ok(local.Concat(remote).Concat(virtualNetworks).OrderBy(item => item.StartedAt).ToArray());
 });
 tunnels.MapPost("/port", StartPortTunnel);
 tunnels.MapPost("/virtual-network", StartVirtualNetwork);

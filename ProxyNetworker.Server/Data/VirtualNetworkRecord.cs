@@ -12,5 +12,9 @@ public sealed class VirtualNetworkRecord
 
     public int PrefixLength { get; set; } = 24;
 
+    public int ListenPort { get; set; } = 51820;
+
+    public int Mtu { get; set; } = 1400;
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }

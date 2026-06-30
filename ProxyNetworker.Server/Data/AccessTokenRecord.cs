@@ -10,6 +10,8 @@ public sealed class AccessTokenRecord
 
     public string TokenHash { get; set; } = string.Empty;
 
+    public string? ProtectedTokenValue { get; set; }
+
     public string TokenPreview { get; set; } = string.Empty;
 
     public string TokenType { get; set; } = AccessTokenTypes.Permanent;

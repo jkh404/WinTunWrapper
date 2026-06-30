@@ -1,17 +1,37 @@
-const state = {
-  me: null,
-  users: [],
-  virtualNetworks: [],
-  portTunnels: [],
-  runtimeTunnels: [],
-  tokens: [],
-  selectedTab: 'overview',
-  selectedTokenKind: 'VirtualNetwork',
-  selectedTokenResourceId: null
+const tabTitles = {
+  overview: '总览',
+  users: '用户',
+  virtualNetworks: '虚拟局域网',
+  portTunnels: '内网穿透',
+  tokens: '访问 Token',
+  settings: '设置'
 };
 
-const $ = (selector) => document.querySelector(selector);
-const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+const tabs = [
+  { key: 'overview', title: tabTitles.overview },
+  { key: 'users', title: tabTitles.users, adminOnly: true },
+  { key: 'virtualNetworks', title: tabTitles.virtualNetworks },
+  { key: 'portTunnels', title: tabTitles.portTunnels },
+  { key: 'tokens', title: tabTitles.tokens },
+  { key: 'settings', title: tabTitles.settings, adminOnly: true }
+];
+
+const routeAliases = {
+  'virtual-networks': 'virtualNetworks',
+  'port-tunnels': 'portTunnels',
+  'access-tokens': 'tokens',
+  token: 'tokens'
+};
+
+const permanentTokenTypes = [
+  { value: 'Permanent', label: '永久' },
+  { value: 'Limited', label: '限期' }
+];
+
+const virtualNetworkTokenTypes = [
+  ...permanentTokenTypes,
+  { value: 'OneTime', label: '一次性' }
+];
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -26,12 +46,6 @@ async function api(path, options = {}) {
     throw new Error(data?.message || data?.title || `HTTP ${response.status}`);
   }
   return data;
-}
-
-function setStatus(message, isError = false) {
-  const node = $('#statusText');
-  node.textContent = message || '';
-  node.style.color = isError ? 'var(--danger)' : 'var(--muted)';
 }
 
 function fmtDate(value) {
@@ -50,388 +64,616 @@ function fmtBytes(value) {
   return `${size.toFixed(index ? 1 : 0)} ${units[index]}`;
 }
 
-function escapeHtml(value) {
-  return String(value ?? '').replace(/[&<>"']/g, char => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;'
-  })[char]);
+function normalizeTab(tab) {
+  const value = String(tab || '').replace(/^#\/?/, '').trim();
+  if (!value) return 'overview';
+  return routeAliases[value] || value;
 }
 
-function hidePlainToken() {
-  const box = $('#plainTokenBox');
-  if (!box) return;
-  box.textContent = '';
-  box.classList.add('hidden');
+function routeTab() {
+  return normalizeTab(decodeURIComponent(location.hash || ''));
 }
 
-function formJson(form) {
-  const data = new FormData(form);
-  const obj = {};
-  for (const [key, value] of data.entries()) {
-    const input = form.elements[key];
-    obj[key] = input?.type === 'number' ? Number(value) : value;
-  }
-  return obj;
+function isTabAllowed(tab, me) {
+  if (!tabTitles[tab]) return false;
+  return me?.role === 'Admin' || (tab !== 'users' && tab !== 'settings');
 }
 
-async function loadSession() {
-  try {
-    state.me = await api('/api/auth/me');
-    $('#loginView').classList.add('hidden');
-    $('#appView').classList.remove('hidden');
-    $('#sessionLabel').textContent = `${state.me.username} · ${state.me.role === 'Admin' ? '管理员' : '普通用户'}`;
-    $$('[data-admin-only]').forEach(node => node.classList.toggle('hidden', state.me.role !== 'Admin'));
-    await refreshAll();
-  } catch {
-    $('#loginView').classList.remove('hidden');
-    $('#appView').classList.add('hidden');
-  }
-}
-
-async function refreshAll() {
-  const calls = [
-    api('/api/virtual-networks').then(data => state.virtualNetworks = data),
-    api('/api/port-tunnels').then(data => state.portTunnels = data)
-  ];
-  if (state.me?.role === 'Admin') {
-    calls.push(api('/api/users').then(data => state.users = data));
-    calls.push(api('/api/tunnels').then(data => state.runtimeTunnels = data));
+function setRouteTab(tab, replace = false) {
+  const nextHash = `#${tab}`;
+  if (location.hash === nextHash) return;
+  if (replace) {
+    history.replaceState(null, '', nextHash);
   } else {
-    state.users = [state.me];
-    state.runtimeTunnels = [];
-  }
-  await Promise.all(calls);
-  reconcileSelectedTokenResource();
-  await loadSelectedTokens();
-  render();
-}
-
-function render() {
-  $('#metricUsers').textContent = state.users.length;
-  $('#metricNetworks').textContent = state.virtualNetworks.length;
-  $('#metricTunnels').textContent = state.portTunnels.length;
-  $('#metricTokens').textContent = state.tokens.length;
-  renderRuntimeTunnels();
-  renderUsers();
-  renderVirtualNetworks();
-  renderPortTunnels();
-  renderTokenResourceOptions();
-  renderTokens();
-}
-
-function renderRuntimeTunnels() {
-  $('#runtimeTunnelRows').innerHTML = state.runtimeTunnels.map(item => `
-    <tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.kind)}</td><td>${escapeHtml(item.protocol || '-')}</td><td>${escapeHtml(item.publicEndpoint)}</td><td>${escapeHtml(item.status)}</td></tr>
-  `).join('') || '<tr><td colspan="5" class="muted">暂无运行中隧道</td></tr>';
-}
-
-function renderUsers() {
-  const rows = state.users.map(user => `
-    <tr>
-      <td>${escapeHtml(user.username)}</td>
-      <td>
-        <select data-user-role="${user.id}">
-          <option value="User" ${user.role === 'User' ? 'selected' : ''}>普通用户</option>
-          <option value="Admin" ${user.role === 'Admin' ? 'selected' : ''}>管理员</option>
-        </select>
-      </td>
-      <td><label><input type="checkbox" data-user-disabled="${user.id}" ${user.isDisabled ? 'checked' : ''}> 禁用</label></td>
-      <td><input type="number" data-user-vnets="${user.id}" min="0" value="${user.maxVirtualNetworks}"></td>
-      <td><input type="number" data-user-tunnels="${user.id}" min="0" value="${user.maxPortTunnels}"></td>
-      <td><input type="number" data-user-port-start="${user.id}" min="1" max="65535" value="${user.portRangeStart}"> - <input type="number" data-user-port-end="${user.id}" min="1" max="65535" value="${user.portRangeEnd}"></td>
-      <td><input type="number" data-user-speed="${user.id}" min="0" value="${user.maxTrafficSpeedBytesPerSecond}"></td>
-      <td>
-        <button data-save-user="${user.id}">保存</button>
-        <button data-reset-user="${user.id}">重置密码</button>
-      </td>
-    </tr>
-  `).join('');
-  $('#userRows').innerHTML = rows || '<tr><td colspan="8" class="muted">暂无用户</td></tr>';
-}
-
-function renderVirtualNetworks() {
-  $('#virtualNetworkRows').innerHTML = state.virtualNetworks.map(item => `
-    <tr>
-      <td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.gatewayAddress)}</td><td>/${item.prefixLength}</td><td>${escapeHtml(ownerName(item.ownerUserId))}</td><td>${fmtDate(item.createdAt)}</td>
-      <td>
-        <div class="row-actions">
-          <button data-token-resource="VirtualNetwork" data-resource-id="${item.id}">Token</button>
-          <button class="danger" data-delete-resource="VirtualNetwork" data-resource-id="${item.id}" data-resource-name="${escapeHtml(item.name)}">删除</button>
-        </div>
-      </td>
-    </tr>
-  `).join('') || '<tr><td colspan="6" class="muted">暂无虚拟局域网</td></tr>';
-}
-
-function renderPortTunnels() {
-  $('#portTunnelRows').innerHTML = state.portTunnels.map(item => `
-    <tr>
-      <td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.protocol.toUpperCase())}</td><td>${escapeHtml(item.privateHost)}:${item.privatePort}</td><td>${item.publicPort}</td>
-      <td>${fmtBytes(item.maxTrafficSpeedBytesPerSecond)}/s</td>
-      <td>
-        <div class="row-actions">
-          <button data-token-resource="PortTunnel" data-resource-id="${item.id}">Token</button>
-          <button class="danger" data-delete-resource="PortTunnel" data-resource-id="${item.id}" data-resource-name="${escapeHtml(item.name)}">删除</button>
-        </div>
-      </td>
-    </tr>
-  `).join('') || '<tr><td colspan="6" class="muted">暂无内网穿透</td></tr>';
-}
-
-function renderTokenResourceOptions() {
-  const kind = state.selectedTokenKind;
-  const items = tokenResources(kind);
-  const currentTokenType = $('#tokenType').value;
-  reconcileSelectedTokenResource();
-  $('#tokenResourceKind').value = state.selectedTokenKind;
-  $('#tokenResourceSelect').innerHTML = items.map(item => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join('');
-  $('#tokenResourceSelect').value = state.selectedTokenResourceId || '';
-  const tokenType = $('#tokenType');
-  tokenType.innerHTML = kind === 'VirtualNetwork'
-    ? '<option value="Permanent">永久</option><option value="Limited">限期</option><option value="OneTime">一次性</option>'
-    : '<option value="Permanent">永久</option><option value="Limited">限期</option>';
-  if (Array.from(tokenType.options).some(option => option.value === currentTokenType)) {
-    tokenType.value = currentTokenType;
+    history.pushState(null, '', nextHash);
   }
 }
 
-function renderTokens() {
-  $('#tokenRows').innerHTML = state.tokens.map(item => `
-    <tr>
-      <td>${escapeHtml(item.scopeKind)}</td><td>${escapeHtml(item.tokenType)}</td><td>${escapeHtml(item.tokenPreview)}</td>
-      <td>${fmtDate(item.validFrom)} - ${fmtDate(item.validUntil)}</td>
-      <td>${item.isConsumed ? '已使用' : '可用'}</td>
-    </tr>
-  `).join('') || '<tr><td colspan="5" class="muted">暂无 Token</td></tr>';
+function selectNodeText(node) {
+  if (!node) return;
+  const selection = window.getSelection();
+  if (!selection) return;
+  const range = document.createRange();
+  range.selectNodeContents(node);
+  selection.removeAllRanges();
+  selection.addRange(range);
 }
 
-function ownerName(id) {
-  return state.users.find(user => user.id === id)?.username || String(id).slice(0, 8);
+function defaultLoginForm() {
+  return { username: '', password: '' };
 }
 
-function tokenResources(kind = state.selectedTokenKind) {
-  return kind === 'VirtualNetwork' ? state.virtualNetworks : state.portTunnels;
-}
-
-function tokenResourcePath(kind, id) {
-  return kind === 'VirtualNetwork' ? `/api/virtual-networks/${id}/tokens` : `/api/port-tunnels/${id}/tokens`;
-}
-
-function resourcePath(kind, id) {
-  return kind === 'VirtualNetwork' ? `/api/virtual-networks/${id}` : `/api/port-tunnels/${id}`;
-}
-
-function resourceLabel(kind) {
-  return kind === 'VirtualNetwork' ? '虚拟局域网' : '内网穿透';
-}
-
-function reconcileSelectedTokenResource() {
-  const items = tokenResources();
-  if (!items.length) {
-    state.selectedTokenResourceId = null;
-    return null;
-  }
-
-  if (!state.selectedTokenResourceId || !items.some(item => item.id === state.selectedTokenResourceId)) {
-    state.selectedTokenResourceId = items[0].id;
-  }
-
-  return state.selectedTokenResourceId;
-}
-
-async function loadSelectedTokens() {
-  const id = reconcileSelectedTokenResource();
-  if (!id) {
-    state.tokens = [];
-    return;
-  }
-  state.tokens = await api(tokenResourcePath(state.selectedTokenKind, id));
-}
-
-function switchTab(tab) {
-  state.selectedTab = tab;
-  $$('.nav button').forEach(button => button.classList.toggle('active', button.dataset.tab === tab));
-  $$('.tab-panel').forEach(panel => panel.classList.toggle('active', panel.id === `${tab}Tab`));
-  $('#pageTitle').textContent = {
-    overview: '总览',
-    users: '用户',
-    virtualNetworks: '虚拟局域网',
-    portTunnels: '内网穿透',
-    tokens: '访问 Token'
-  }[tab] || tab;
-}
-
-document.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const form = event.target;
-  try {
-    if (form.id === 'loginForm') {
-      $('#loginError').textContent = '';
-      await api('/api/auth/login', { method: 'POST', body: JSON.stringify(formJson(form)) });
-      await loadSession();
-      return;
-    }
-    if (form.id === 'userForm') {
-      await api('/api/users', { method: 'POST', body: JSON.stringify(formJson(form)) });
-      form.reset();
-      await refreshAll();
-      setStatus('用户已创建');
-      return;
-    }
-    if (form.id === 'virtualNetworkForm') {
-      await api('/api/virtual-networks', { method: 'POST', body: JSON.stringify(formJson(form)) });
-      form.reset();
-      await refreshAll();
-      setStatus('虚拟局域网已创建');
-      return;
-    }
-    if (form.id === 'portTunnelForm') {
-      await api('/api/port-tunnels', { method: 'POST', body: JSON.stringify(formJson(form)) });
-      form.reset();
-      await refreshAll();
-      setStatus('内网穿透已创建');
-      return;
-    }
-    if (form.id === 'passwordForm') {
-      await api('/api/auth/change-password', { method: 'POST', body: JSON.stringify(formJson(form)) });
-      $('#passwordDialog').close();
-      form.reset();
-      setStatus('密码已修改');
-    }
-  } catch (error) {
-    if (form.id === 'loginForm') $('#loginError').textContent = error.message;
-    setStatus(error.message, true);
-  }
-});
-
-document.addEventListener('click', async (event) => {
-  const target = event.target;
-  if (!(target instanceof HTMLElement)) return;
-
-  try {
-    const tab = target.dataset.tab;
-    if (tab) switchTab(tab);
-
-    if (target.id === 'logoutButton') {
-      await api('/api/auth/logout', { method: 'POST' });
-      location.reload();
-      return;
-    }
-    if (target.id === 'changePasswordButton') $('#passwordDialog').showModal();
-    if (target.id === 'cancelPasswordButton') $('#passwordDialog').close();
-
-    const saveId = target.dataset.saveUser;
-    if (saveId) {
-      await saveUser(saveId);
-      return;
-    }
-
-    const resetId = target.dataset.resetUser;
-    if (resetId) {
-      const newPassword = prompt('输入新密码');
-      if (newPassword) {
-        await api(`/api/users/${resetId}/reset-password`, { method: 'POST', body: JSON.stringify({ newPassword }) });
-        setStatus('密码已重置');
-      }
-      return;
-    }
-
-    const resourceKind = target.dataset.tokenResource;
-    if (resourceKind) {
-      state.selectedTokenKind = resourceKind;
-      state.selectedTokenResourceId = target.dataset.resourceId || null;
-      hidePlainToken();
-      switchTab('tokens');
-      await loadSelectedTokens();
-      renderTokenResourceOptions();
-      renderTokens();
-      return;
-    }
-
-    const deleteKind = target.dataset.deleteResource;
-    if (deleteKind) {
-      await deleteResource(deleteKind, target.dataset.resourceId, target.dataset.resourceName);
-      return;
-    }
-
-    if (target.id === 'createTokenButton') {
-      await createToken();
-    }
-  } catch (error) {
-    setStatus(error.message, true);
-  }
-});
-
-$('#tokenResourceKind').addEventListener('change', async () => {
-  state.selectedTokenKind = $('#tokenResourceKind').value;
-  state.selectedTokenResourceId = null;
-  hidePlainToken();
-  renderTokenResourceOptions();
-  await loadSelectedTokens();
-  renderTokens();
-});
-$('#tokenResourceSelect').addEventListener('change', async () => {
-  state.selectedTokenResourceId = $('#tokenResourceSelect').value || null;
-  hidePlainToken();
-  await loadSelectedTokens();
-  renderTokens();
-});
-
-async function saveUser(id) {
-  const body = {
-    role: $(`[data-user-role="${id}"]`).value,
-    isDisabled: $(`[data-user-disabled="${id}"]`).checked,
-    maxVirtualNetworks: Number($(`[data-user-vnets="${id}"]`).value),
-    maxPortTunnels: Number($(`[data-user-tunnels="${id}"]`).value),
-    portRangeStart: Number($(`[data-user-port-start="${id}"]`).value),
-    portRangeEnd: Number($(`[data-user-port-end="${id}"]`).value),
+function defaultUserForm(settings = null) {
+  return {
+    username: '',
+    password: '',
+    role: 'User',
+    maxVirtualNetworks: 1,
+    maxPortTunnels: 3,
+    portRangeStart: settings?.publicPortRangeStart ?? 20000,
+    portRangeEnd: settings?.publicPortRangeEnd ?? 30000,
     bandwidthLimitBytes: 0,
-    maxTrafficSpeedBytesPerSecond: Number($(`[data-user-speed="${id}"]`).value)
+    maxTrafficSpeedBytesPerSecond: 0
   };
-  await api(`/api/users/${id}`, { method: 'PUT', body: JSON.stringify(body) });
-  await refreshAll();
-  setStatus('用户已保存');
 }
 
-async function createToken() {
-  const kind = state.selectedTokenKind;
-  const id = reconcileSelectedTokenResource();
-  if (!id) return setStatus('请选择资源', true);
-  const body = {
-    tokenType: $('#tokenType').value,
-    validFrom: $('#tokenValidFrom').value ? new Date($('#tokenValidFrom').value).toISOString() : null,
-    validUntil: $('#tokenValidUntil').value ? new Date($('#tokenValidUntil').value).toISOString() : null
+function defaultVirtualNetworkForm() {
+  return {
+    name: '',
+    gatewayAddress: '10.66.0.1',
+    prefixLength: 24
   };
-  const path = kind === 'VirtualNetwork' ? `/api/virtual-networks/${id}/tokens` : `/api/port-tunnels/${id}/tokens`;
-  const result = await api(path, { method: 'POST', body: JSON.stringify(body) });
-  $('#plainTokenBox').textContent = `请立即复制：${result.plainTextToken}`;
-  $('#plainTokenBox').classList.remove('hidden');
-  await loadSelectedTokens();
-  renderTokens();
 }
 
-async function deleteResource(kind, id, name) {
-  if (!id) return;
-
-  const label = resourceLabel(kind);
-  const displayName = name || id.slice(0, 8);
-  if (!confirm(`确定删除${label}“${displayName}”？关联 Token 也会一起删除。`)) {
-    return;
-  }
-
-  await api(resourcePath(kind, id), { method: 'DELETE' });
-
-  if (state.selectedTokenKind === kind && state.selectedTokenResourceId === id) {
-    state.selectedTokenResourceId = null;
-    state.tokens = [];
-    hidePlainToken();
-  }
-
-  await refreshAll();
-  setStatus(`${label}已删除`);
+function defaultPortTunnelForm() {
+  return {
+    name: '',
+    protocol: 'tcp',
+    privateHost: '127.0.0.1',
+    privatePort: null
+  };
 }
 
-loadSession();
+function defaultTokenForm() {
+  return {
+    tokenType: 'Permanent',
+    validFrom: '',
+    validUntil: ''
+  };
+}
+
+function defaultPasswordForm() {
+  return {
+    currentPassword: '',
+    newPassword: ''
+  };
+}
+
+function defaultSettingsForm() {
+  return {
+    publicPortRangeStart: 1,
+    publicPortRangeEnd: 65535,
+    maxBandwidthLimitBytes: 0,
+    maxTrafficSpeedBytesPerSecond: 0
+  };
+}
+
+const { createApp } = window.Vue;
+
+createApp({
+  data() {
+    return {
+      sessionChecked: false,
+      me: null,
+      users: [],
+      virtualNetworks: [],
+      portTunnels: [],
+      runtimeTunnels: [],
+      tokens: [],
+      settings: null,
+      plainToken: '',
+      selectedTab: 'overview',
+      selectedTokenKind: 'VirtualNetwork',
+      selectedTokenResourceId: null,
+      loginError: '',
+      statusMessage: '',
+      statusIsError: false,
+      loginForm: defaultLoginForm(),
+      userForm: defaultUserForm(),
+      virtualNetworkForm: defaultVirtualNetworkForm(),
+      portTunnelForm: defaultPortTunnelForm(),
+      tokenForm: defaultTokenForm(),
+      passwordForm: defaultPasswordForm(),
+      settingsForm: defaultSettingsForm()
+    };
+  },
+
+  computed: {
+    isAdmin() {
+      return this.me?.role === 'Admin';
+    },
+
+    sessionLabel() {
+      if (!this.me) return '';
+      return `${this.me.username} · ${this.isAdmin ? '管理员' : '普通用户'}`;
+    },
+
+    visibleTabs() {
+      return tabs.filter(tab => !tab.adminOnly || this.isAdmin);
+    },
+
+    pageTitle() {
+      return tabTitles[this.selectedTab] || this.selectedTab;
+    },
+
+    userPortMin() {
+      return this.settings?.publicPortRangeStart ?? 1;
+    },
+
+    userPortMax() {
+      return this.settings?.publicPortRangeEnd ?? 65535;
+    },
+
+    bandwidthMax() {
+      return this.settings?.maxBandwidthLimitBytes > 0 ? this.settings.maxBandwidthLimitBytes : null;
+    },
+
+    speedMax() {
+      return this.settings?.maxTrafficSpeedBytesPerSecond > 0 ? this.settings.maxTrafficSpeedBytesPerSecond : null;
+    },
+
+    tokenResourceItems() {
+      return this.selectedTokenKind === 'VirtualNetwork' ? this.virtualNetworks : this.portTunnels;
+    },
+
+    tokenTypeOptions() {
+      return this.selectedTokenKind === 'VirtualNetwork' ? virtualNetworkTokenTypes : permanentTokenTypes;
+    }
+  },
+
+  async mounted() {
+    window.addEventListener('hashchange', this.onHashChange);
+    await this.loadSession();
+  },
+
+  unmounted() {
+    window.removeEventListener('hashchange', this.onHashChange);
+  },
+
+  methods: {
+    fmtDate,
+    fmtBytes,
+
+    setStatus(message, isError = false) {
+      this.statusMessage = message || '';
+      this.statusIsError = isError;
+    },
+
+    setInitialRoute() {
+      const tab = routeTab();
+      this.selectedTab = isTabAllowed(tab, this.me) ? tab : 'overview';
+      if (location.hash && routeTab() !== this.selectedTab) {
+        setRouteTab(this.selectedTab, true);
+      }
+    },
+
+    async loadSession() {
+      try {
+        this.me = await api('/api/auth/me');
+        this.setInitialRoute();
+        await this.refreshAll();
+      } catch {
+        this.me = null;
+      } finally {
+        this.sessionChecked = true;
+      }
+    },
+
+    async refreshAll() {
+      const calls = [
+        api('/api/virtual-networks').then(data => { this.virtualNetworks = data; }),
+        api('/api/port-tunnels').then(data => { this.portTunnels = data; })
+      ];
+
+      if (this.isAdmin) {
+        calls.push(api('/api/users').then(data => { this.users = data; }));
+        calls.push(api('/api/tunnels').then(data => { this.runtimeTunnels = data; }));
+        calls.push(api('/api/settings').then(data => {
+          const hadSettings = Boolean(this.settings);
+          this.settings = data;
+          this.settingsForm = { ...data };
+          if (!hadSettings) {
+            this.userForm = defaultUserForm(data);
+          }
+        }));
+      } else {
+        this.users = [this.me];
+        this.runtimeTunnels = [];
+        this.settings = null;
+      }
+
+      await Promise.all(calls);
+      this.reconcileSelectedTokenResource();
+      this.ensureTokenTypeAllowed();
+      await this.loadSelectedTokens();
+
+      if (!isTabAllowed(this.selectedTab, this.me)) {
+        this.switchTab('overview', { replaceRoute: true });
+      }
+    },
+
+    async login() {
+      try {
+        this.loginError = '';
+        await api('/api/auth/login', {
+          method: 'POST',
+          body: JSON.stringify(this.loginForm)
+        });
+        this.loginForm = defaultLoginForm();
+        await this.loadSession();
+      } catch (error) {
+        this.loginError = error.message;
+        this.setStatus(error.message, true);
+      }
+    },
+
+    async logout() {
+      try {
+        await api('/api/auth/logout', { method: 'POST' });
+        location.reload();
+      } catch (error) {
+        this.setStatus(error.message, true);
+      }
+    },
+
+    switchTab(tab, options = {}) {
+      const updateRoute = options.updateRoute ?? true;
+      const replaceRoute = options.replaceRoute ?? false;
+      const normalized = normalizeTab(tab);
+      this.selectedTab = isTabAllowed(normalized, this.me) ? normalized : 'overview';
+      if (updateRoute) {
+        setRouteTab(this.selectedTab, replaceRoute);
+      }
+    },
+
+    onHashChange() {
+      if (!this.me) return;
+      const tab = routeTab();
+      if (isTabAllowed(tab, this.me)) {
+        this.switchTab(tab, { updateRoute: false });
+      } else {
+        this.switchTab('overview', { replaceRoute: true });
+      }
+    },
+
+    ownerName(id) {
+      return this.users.find(user => user.id === id)?.username || String(id).slice(0, 8);
+    },
+
+    tokenResourcePath(kind, id) {
+      return kind === 'VirtualNetwork' ? `/api/virtual-networks/${id}/tokens` : `/api/port-tunnels/${id}/tokens`;
+    },
+
+    resourcePath(kind, id) {
+      return kind === 'VirtualNetwork' ? `/api/virtual-networks/${id}` : `/api/port-tunnels/${id}`;
+    },
+
+    resourceLabel(kind) {
+      return kind === 'VirtualNetwork' ? '虚拟局域网' : '内网穿透';
+    },
+
+    reconcileSelectedTokenResource() {
+      const items = this.tokenResourceItems;
+      if (!items.length) {
+        this.selectedTokenResourceId = null;
+        return null;
+      }
+
+      if (!this.selectedTokenResourceId || !items.some(item => item.id === this.selectedTokenResourceId)) {
+        this.selectedTokenResourceId = items[0].id;
+      }
+
+      return this.selectedTokenResourceId;
+    },
+
+    ensureTokenTypeAllowed() {
+      if (!this.tokenTypeOptions.some(item => item.value === this.tokenForm.tokenType)) {
+        this.tokenForm.tokenType = this.tokenTypeOptions[0].value;
+      }
+    },
+
+    hidePlainToken() {
+      this.plainToken = '';
+    },
+
+    async loadSelectedTokens() {
+      const id = this.reconcileSelectedTokenResource();
+      if (!id) {
+        this.tokens = [];
+        return;
+      }
+
+      this.tokens = await api(this.tokenResourcePath(this.selectedTokenKind, id));
+    },
+
+    async onTokenKindChanged() {
+      try {
+        this.selectedTokenResourceId = null;
+        this.hidePlainToken();
+        this.ensureTokenTypeAllowed();
+        this.reconcileSelectedTokenResource();
+        await this.loadSelectedTokens();
+      } catch (error) {
+        this.setStatus(error.message, true);
+      }
+    },
+
+    async onTokenResourceChanged() {
+      try {
+        this.hidePlainToken();
+        await this.loadSelectedTokens();
+      } catch (error) {
+        this.setStatus(error.message, true);
+      }
+    },
+
+    async createUser() {
+      try {
+        await api('/api/users', {
+          method: 'POST',
+          body: JSON.stringify(this.userForm)
+        });
+        this.userForm = defaultUserForm(this.settings);
+        await this.refreshAll();
+        this.setStatus('用户已创建');
+      } catch (error) {
+        this.setStatus(error.message, true);
+      }
+    },
+
+    async saveUser(user) {
+      try {
+        const body = {
+          role: user.role,
+          isDisabled: user.isDisabled,
+          maxVirtualNetworks: Number(user.maxVirtualNetworks),
+          maxPortTunnels: Number(user.maxPortTunnels),
+          portRangeStart: Number(user.portRangeStart),
+          portRangeEnd: Number(user.portRangeEnd),
+          bandwidthLimitBytes: Number(user.bandwidthLimitBytes),
+          maxTrafficSpeedBytesPerSecond: Number(user.maxTrafficSpeedBytesPerSecond)
+        };
+        await api(`/api/users/${user.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(body)
+        });
+        await this.refreshAll();
+        this.setStatus('用户已保存');
+      } catch (error) {
+        this.setStatus(error.message, true);
+      }
+    },
+
+    async resetUserPassword(user) {
+      const newPassword = prompt('输入新密码');
+      if (!newPassword) return;
+
+      try {
+        await api(`/api/users/${user.id}/reset-password`, {
+          method: 'POST',
+          body: JSON.stringify({ newPassword })
+        });
+        this.setStatus('密码已重置');
+      } catch (error) {
+        this.setStatus(error.message, true);
+      }
+    },
+
+    async deleteUser(user) {
+      const displayName = user.username || user.id.slice(0, 8);
+      if (!confirm(`确定删除用户“${displayName}”？该用户的虚拟局域网、内网穿透和 Token 会一起删除。`)) {
+        return;
+      }
+
+      const typedName = prompt(`再次确认：输入账号名 ${displayName} 才会删除`);
+      if (typedName !== displayName) {
+        this.setStatus('用户删除已取消', true);
+        return;
+      }
+
+      try {
+        await api(`/api/users/${user.id}`, { method: 'DELETE' });
+        this.hidePlainToken();
+        await this.refreshAll();
+        this.setStatus('用户已删除');
+      } catch (error) {
+        this.setStatus(error.message, true);
+      }
+    },
+
+    async createVirtualNetwork() {
+      try {
+        await api('/api/virtual-networks', {
+          method: 'POST',
+          body: JSON.stringify(this.virtualNetworkForm)
+        });
+        this.virtualNetworkForm = defaultVirtualNetworkForm();
+        await this.refreshAll();
+        this.setStatus('虚拟局域网已创建');
+      } catch (error) {
+        this.setStatus(error.message, true);
+      }
+    },
+
+    async createPortTunnel() {
+      try {
+        await api('/api/port-tunnels', {
+          method: 'POST',
+          body: JSON.stringify(this.portTunnelForm)
+        });
+        this.portTunnelForm = defaultPortTunnelForm();
+        await this.refreshAll();
+        this.setStatus('内网穿透已创建');
+      } catch (error) {
+        this.setStatus(error.message, true);
+      }
+    },
+
+    async openTokenTab(kind, id) {
+      try {
+        this.selectedTokenKind = kind;
+        this.selectedTokenResourceId = id || null;
+        this.hidePlainToken();
+        this.switchTab('tokens');
+        this.ensureTokenTypeAllowed();
+        await this.loadSelectedTokens();
+      } catch (error) {
+        this.setStatus(error.message, true);
+      }
+    },
+
+    async createToken() {
+      try {
+        const id = this.reconcileSelectedTokenResource();
+        if (!id) {
+          this.setStatus('请选择资源', true);
+          return;
+        }
+
+        const body = {
+          tokenType: this.tokenForm.tokenType,
+          validFrom: this.tokenForm.validFrom ? new Date(this.tokenForm.validFrom).toISOString() : null,
+          validUntil: this.tokenForm.validUntil ? new Date(this.tokenForm.validUntil).toISOString() : null
+        };
+        const result = await api(this.tokenResourcePath(this.selectedTokenKind, id), {
+          method: 'POST',
+          body: JSON.stringify(body)
+        });
+        this.plainToken = result.plainTextToken;
+        await this.loadSelectedTokens();
+        this.setStatus('Token 已创建并保存');
+      } catch (error) {
+        this.setStatus(error.message, true);
+      }
+    },
+
+    async copyStoredToken(id) {
+      try {
+        const result = await api(`/api/access-tokens/${id}/value`);
+        this.plainToken = result.plainTextToken;
+        await this.$nextTick();
+        await this.copyText(result.plainTextToken, 'Token 已复制');
+      } catch (error) {
+        this.setStatus(error.message, true);
+      }
+    },
+
+    async copyText(value, successMessage) {
+      if (!value) {
+        this.setStatus('没有可复制的内容', true);
+        return;
+      }
+
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(value);
+          this.setStatus(successMessage);
+          return;
+        }
+      } catch {
+        // Fall back to the selection API below.
+      }
+
+      const input = document.createElement('textarea');
+      input.value = value;
+      input.setAttribute('readonly', '');
+      input.style.position = 'fixed';
+      input.style.opacity = '0';
+      document.body.appendChild(input);
+      input.select();
+      const copied = document.execCommand('copy');
+      input.remove();
+
+      if (!copied) {
+        selectNodeText(this.$refs.plainTokenValue);
+        throw new Error('浏览器拒绝自动复制，Token 已显示，请按 Ctrl+C 复制');
+      }
+
+      this.setStatus(successMessage);
+    },
+
+    async deleteToken(token) {
+      const preview = token.tokenPreview || token.id.slice(0, 8);
+      if (!confirm(`确定删除 Token ${preview}？`)) {
+        return;
+      }
+
+      try {
+        await api(`/api/access-tokens/${token.id}`, { method: 'DELETE' });
+        this.hidePlainToken();
+        await this.loadSelectedTokens();
+        this.setStatus('Token 已删除');
+      } catch (error) {
+        this.setStatus(error.message, true);
+      }
+    },
+
+    async deleteResource(kind, id, name) {
+      const label = this.resourceLabel(kind);
+      const displayName = name || id.slice(0, 8);
+      if (!confirm(`确定删除${label}“${displayName}”？关联 Token 也会一起删除。`)) {
+        return;
+      }
+
+      try {
+        await api(this.resourcePath(kind, id), { method: 'DELETE' });
+        if (this.selectedTokenKind === kind && this.selectedTokenResourceId === id) {
+          this.selectedTokenResourceId = null;
+          this.tokens = [];
+          this.hidePlainToken();
+        }
+        await this.refreshAll();
+        this.setStatus(`${label}已删除`);
+      } catch (error) {
+        this.setStatus(error.message, true);
+      }
+    },
+
+    async updateSettings() {
+      try {
+        this.settings = await api('/api/settings', {
+          method: 'PUT',
+          body: JSON.stringify(this.settingsForm)
+        });
+        this.settingsForm = { ...this.settings };
+        this.userForm = defaultUserForm(this.settings);
+        await this.refreshAll();
+        this.setStatus('设置已保存');
+      } catch (error) {
+        this.setStatus(error.message, true);
+      }
+    },
+
+    openPasswordDialog() {
+      this.$refs.passwordDialog?.showModal();
+    },
+
+    closePasswordDialog() {
+      this.$refs.passwordDialog?.close();
+    },
+
+    async changePassword() {
+      try {
+        await api('/api/auth/change-password', {
+          method: 'POST',
+          body: JSON.stringify(this.passwordForm)
+        });
+        this.closePasswordDialog();
+        this.passwordForm = defaultPasswordForm();
+        this.setStatus('密码已修改');
+      } catch (error) {
+        this.setStatus(error.message, true);
+      }
+    }
+  }
+}).mount('#app');

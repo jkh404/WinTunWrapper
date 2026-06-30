@@ -1,10 +1,9 @@
 using System.Runtime.InteropServices;
 using System.Text;
-using static Vanara.PInvoke.IpHlpApi;
 
 namespace ProxyNetworker.Core.Platforms.Windows;
 
-internal static class WintunNative
+internal static partial class WintunNative
 {
     public const int WintunMinRingCapacity = 0x20000;
     public const int WintunMaxRingCapacity = 0x4000000;
@@ -14,50 +13,47 @@ internal static class WintunNative
 
     public delegate void WintunLoggerCallback(WintunLoggerLevel loggerLevel, long timestamp, IntPtr message);
 
-    [DllImport(WintunDll, EntryPoint = "WintunCreateAdapter", CharSet = CharSet.Unicode, SetLastError = true)]
-    public static extern IntPtr WintunCreateAdapter(string name, string tunnelType, IntPtr requestedGuid);
+    [LibraryImport(WintunDll, EntryPoint = "WintunCreateAdapter", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
+    public static partial IntPtr WintunCreateAdapter(string name, string tunnelType, IntPtr requestedGuid);
 
-    [DllImport(WintunDll, EntryPoint = "WintunOpenAdapter", CharSet = CharSet.Unicode, SetLastError = true)]
-    public static extern IntPtr WintunOpenAdapter(string name);
+    [LibraryImport(WintunDll, EntryPoint = "WintunOpenAdapter", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
+    public static partial IntPtr WintunOpenAdapter(string name);
 
-    [DllImport(WintunDll, EntryPoint = "WintunCloseAdapter")]
-    public static extern void WintunCloseAdapter(IntPtr adapter);
+    [LibraryImport(WintunDll, EntryPoint = "WintunCloseAdapter")]
+    public static partial void WintunCloseAdapter(IntPtr adapter);
 
-    [DllImport(WintunDll, EntryPoint = "WintunDeleteDriver", SetLastError = true)]
-    public static extern int WintunDeleteDriver();
+    [LibraryImport(WintunDll, EntryPoint = "WintunDeleteDriver", SetLastError = true)]
+    public static partial int WintunDeleteDriver();
 
-    [DllImport(WintunDll, EntryPoint = "WintunGetAdapterLUID")]
-    public static extern void WintunGetAdapterLUID(IntPtr adapter, out NET_LUID luid);
+    [LibraryImport(WintunDll, EntryPoint = "WintunGetAdapterLUID")]
+    public static partial void WintunGetAdapterLUID(IntPtr adapter, out NetLuidLh luid);
 
-    [DllImport(WintunDll, EntryPoint = "WintunGetAdapterLUID")]
-    public static extern void WintunGetAdapterLUID(IntPtr adapter, out NetLuidLh luid);
+    [LibraryImport(WintunDll, EntryPoint = "WintunGetRunningDriverVersion", SetLastError = true)]
+    public static partial int WintunGetRunningDriverVersion();
 
-    [DllImport(WintunDll, EntryPoint = "WintunGetRunningDriverVersion", SetLastError = true)]
-    public static extern int WintunGetRunningDriverVersion();
+    [LibraryImport(WintunDll, EntryPoint = "WintunSetLogger")]
+    public static partial int WintunSetLogger(IntPtr callback);
 
-    [DllImport(WintunDll, EntryPoint = "WintunSetLogger")]
-    public static extern int WintunSetLogger(WintunLoggerCallback callback);
+    [LibraryImport(WintunDll, EntryPoint = "WintunStartSession", SetLastError = true)]
+    public static partial IntPtr WintunStartSession(IntPtr adapter, uint capacity);
 
-    [DllImport(WintunDll, EntryPoint = "WintunStartSession", SetLastError = true)]
-    public static extern IntPtr WintunStartSession(IntPtr adapter, uint capacity);
+    [LibraryImport(WintunDll, EntryPoint = "WintunEndSession")]
+    public static partial void WintunEndSession(IntPtr session);
 
-    [DllImport(WintunDll, EntryPoint = "WintunEndSession")]
-    public static extern void WintunEndSession(IntPtr session);
+    [LibraryImport(WintunDll, EntryPoint = "WintunGetReadWaitEvent")]
+    public static partial IntPtr WintunGetReadWaitEvent(IntPtr session);
 
-    [DllImport(WintunDll, EntryPoint = "WintunGetReadWaitEvent")]
-    public static extern IntPtr WintunGetReadWaitEvent(IntPtr session);
+    [LibraryImport(WintunDll, EntryPoint = "WintunReceivePacket", SetLastError = true)]
+    public static partial IntPtr WintunReceivePacket(IntPtr session, out uint packetSize);
 
-    [DllImport(WintunDll, EntryPoint = "WintunReceivePacket", SetLastError = true)]
-    public static extern IntPtr WintunReceivePacket(IntPtr session, out uint packetSize);
+    [LibraryImport(WintunDll, EntryPoint = "WintunReleaseReceivePacket")]
+    public static partial void WintunReleaseReceivePacket(IntPtr session, IntPtr packet);
 
-    [DllImport(WintunDll, EntryPoint = "WintunReleaseReceivePacket")]
-    public static extern void WintunReleaseReceivePacket(IntPtr session, IntPtr packet);
+    [LibraryImport(WintunDll, EntryPoint = "WintunAllocateSendPacket", SetLastError = true)]
+    public static partial IntPtr WintunAllocateSendPacket(IntPtr session, uint packetSize);
 
-    [DllImport(WintunDll, EntryPoint = "WintunAllocateSendPacket", SetLastError = true)]
-    public static extern IntPtr WintunAllocateSendPacket(IntPtr session, uint packetSize);
-
-    [DllImport(WintunDll, EntryPoint = "WintunSendPacket")]
-    public static extern void WintunSendPacket(IntPtr session, IntPtr packet);
+    [LibraryImport(WintunDll, EntryPoint = "WintunSendPacket")]
+    public static partial void WintunSendPacket(IntPtr session, IntPtr packet);
 
     public static IntPtr ToNativeGuidPointer(Guid value)
     {
@@ -76,39 +72,9 @@ internal static class WintunNative
         return pointer;
     }
 
-    [StructLayout(LayoutKind.Explicit, Size = 8)]
+    [StructLayout(LayoutKind.Sequential)]
     public struct NetLuidLh
     {
-        [FieldOffset(0)]
         public ulong Value;
-
-        [FieldOffset(0)]
-        public InfoStruct Info;
-
-        [StructLayout(LayoutKind.Explicit, Size = 8)]
-        public struct InfoStruct
-        {
-            [FieldOffset(0)] public ushort IfType;
-            [FieldOffset(3)] public Int3Byte NetLuidIndex;
-            [FieldOffset(5)] public Int3Byte Reserved;
-        }
-    }
-
-    [StructLayout(LayoutKind.Explicit, Size = 3)]
-    public struct Int3Byte
-    {
-        [FieldOffset(0)] public byte B0;
-        [FieldOffset(1)] public byte B1;
-        [FieldOffset(2)] public byte B2;
-
-        public int ToInt()
-        {
-            return B0 | (B1 << 8) | (B2 << 16);
-        }
-
-        public override string ToString()
-        {
-            return ToInt().ToString();
-        }
     }
 }

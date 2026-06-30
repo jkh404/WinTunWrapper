@@ -7,6 +7,10 @@ public sealed class CreateVirtualNetworkDefinitionRequest
     public string GatewayAddress { get; set; } = "10.66.0.1";
 
     public int PrefixLength { get; set; } = 24;
+
+    public int ListenPort { get; set; }
+
+    public int Mtu { get; set; } = 1400;
 }
 
 public sealed record VirtualNetworkDefinitionResponse(
@@ -15,6 +19,8 @@ public sealed record VirtualNetworkDefinitionResponse(
     string Name,
     string GatewayAddress,
     int PrefixLength,
+    int ListenPort,
+    int Mtu,
     DateTimeOffset CreatedAt);
 
 public sealed class CreatePortTunnelDefinitionRequest
@@ -58,8 +64,29 @@ public sealed record AccessTokenResponse(
     DateTimeOffset? ValidFrom,
     DateTimeOffset? ValidUntil,
     bool IsConsumed,
+    bool HasStoredValue,
     DateTimeOffset CreatedAt);
 
 public sealed record CreatedAccessTokenResponse(
     AccessTokenResponse Token,
     string PlainTextToken);
+
+public sealed record AccessTokenValueResponse(string PlainTextToken);
+
+public sealed class UpdateSystemSettingsRequest
+{
+    public int PublicPortRangeStart { get; set; } = 1;
+
+    public int PublicPortRangeEnd { get; set; } = 65535;
+
+    public long MaxBandwidthLimitBytes { get; set; }
+
+    public long MaxTrafficSpeedBytesPerSecond { get; set; }
+}
+
+public sealed record SystemSettingsResponse(
+    int PublicPortRangeStart,
+    int PublicPortRangeEnd,
+    long MaxBandwidthLimitBytes,
+    long MaxTrafficSpeedBytesPerSecond,
+    DateTimeOffset UpdatedAt);

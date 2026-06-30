@@ -7,150 +7,280 @@
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <main id="loginView" class="login-shell">
-    <section class="login-panel">
-      <div>
-        <p class="eyebrow">ProxyNetworker</p>
-        <h1>管理后台</h1>
-        <p class="muted">登录后管理账号、配额、虚拟局域网和内网穿透访问令牌。</p>
-      </div>
-      <form id="loginForm" class="stack">
-        <label>
-          账号
-          <input name="username" autocomplete="username" value="sky" required>
-        </label>
-        <label>
-          密码
-          <input name="password" type="password" autocomplete="current-password" value="sky.123" required>
-        </label>
-        <button type="submit" class="primary">登录</button>
-        <p id="loginError" class="error"></p>
-      </form>
-    </section>
-  </main>
-
-  <main id="appView" class="app-shell hidden">
-    <aside class="sidebar">
-      <div class="brand">
-        <strong>ProxyNetworker</strong>
-        <span id="sessionLabel"></span>
-      </div>
-      <nav class="nav">
-        <button data-tab="overview" class="active">总览</button>
-        <button data-tab="users" data-admin-only>用户</button>
-        <button data-tab="virtualNetworks">虚拟局域网</button>
-        <button data-tab="portTunnels">内网穿透</button>
-        <button data-tab="tokens">访问 Token</button>
-      </nav>
-      <div class="sidebar-actions">
-        <button id="changePasswordButton">修改密码</button>
-        <button id="logoutButton">退出</button>
-      </div>
-    </aside>
-
-    <section class="workspace">
-      <header class="topbar">
+  <div id="app" v-cloak>
+    <main v-if="sessionChecked && !me" class="login-shell">
+      <section class="login-panel">
         <div>
-          <p class="eyebrow">Management</p>
-          <h2 id="pageTitle">总览</h2>
+          <p class="eyebrow">ProxyNetworker</p>
+          <h1>管理后台</h1>
+          <p class="muted">登录后管理账号、配额、虚拟局域网和内网穿透访问令牌。</p>
         </div>
-        <p id="statusText" class="status-text"></p>
-      </header>
-
-      <section id="overviewTab" class="tab-panel active">
-        <div class="metric-grid">
-          <div class="metric"><span>用户</span><strong id="metricUsers">-</strong></div>
-          <div class="metric"><span>虚拟局域网</span><strong id="metricNetworks">-</strong></div>
-          <div class="metric"><span>内网穿透</span><strong id="metricTunnels">-</strong></div>
-          <div class="metric"><span>访问 Token</span><strong id="metricTokens">-</strong></div>
-        </div>
-        <div class="section-row">
-          <section>
-            <h3>运行中隧道</h3>
-            <table>
-              <thead><tr><th>名称</th><th>类型</th><th>协议</th><th>入口</th><th>状态</th></tr></thead>
-              <tbody id="runtimeTunnelRows"></tbody>
-            </table>
-          </section>
-        </div>
-      </section>
-
-      <section id="usersTab" class="tab-panel">
-        <form id="userForm" class="form-grid">
-          <input name="username" placeholder="账号" required>
-          <input name="password" placeholder="初始密码" required>
-          <select name="role"><option value="User">普通用户</option><option value="Admin">管理员</option></select>
-          <input name="maxVirtualNetworks" type="number" min="0" value="1" title="虚拟局域网数量">
-          <input name="maxPortTunnels" type="number" min="0" value="3" title="隧道数量">
-          <input name="portRangeStart" type="number" min="1" max="65535" value="20000" title="端口起始">
-          <input name="portRangeEnd" type="number" min="1" max="65535" value="30000" title="端口结束">
-          <input name="bandwidthLimitBytes" type="number" min="0" value="0" title="带宽总量字节，0 为不限">
-          <input name="maxTrafficSpeedBytesPerSecond" type="number" min="0" value="0" title="最高速度字节/秒，0 为不限">
-          <button type="submit" class="primary">创建用户</button>
+        <form class="stack" @submit.prevent="login">
+          <label>
+            账号
+            <input v-model.trim="loginForm.username" autocomplete="username" required>
+          </label>
+          <label>
+            密码
+            <input v-model="loginForm.password" type="password" autocomplete="current-password" required>
+          </label>
+          <button type="submit" class="primary">登录</button>
+          <p class="error">{{ loginError }}</p>
         </form>
-        <table>
-          <thead><tr><th>账号</th><th>角色</th><th>状态</th><th>虚拟网</th><th>隧道</th><th>端口范围</th><th>限速</th><th>操作</th></tr></thead>
-          <tbody id="userRows"></tbody>
-        </table>
       </section>
+    </main>
 
-      <section id="virtualNetworksTab" class="tab-panel">
-        <form id="virtualNetworkForm" class="form-grid compact">
-          <input name="name" placeholder="名称" required>
-          <input name="gatewayAddress" placeholder="网关地址" value="10.66.0.1" required>
-          <input name="prefixLength" type="number" min="1" max="32" value="24" required>
-          <button type="submit" class="primary">创建虚拟局域网</button>
-        </form>
-        <table>
-          <thead><tr><th>名称</th><th>网关</th><th>前缀</th><th>所有者</th><th>创建时间</th><th>操作</th></tr></thead>
-          <tbody id="virtualNetworkRows"></tbody>
-        </table>
-      </section>
-
-      <section id="portTunnelsTab" class="tab-panel">
-        <form id="portTunnelForm" class="form-grid compact">
-          <input name="name" placeholder="名称" required>
-          <select name="protocol"><option value="tcp">TCP</option><option value="udp">UDP</option></select>
-          <input name="privateHost" placeholder="内网地址" value="127.0.0.1" required>
-          <input name="privatePort" type="number" min="1" max="65535" placeholder="内网端口" required>
-          <button type="submit" class="primary">创建内网穿透</button>
-        </form>
-        <table>
-          <thead><tr><th>名称</th><th>协议</th><th>内网端口</th><th>服务器端口</th><th>限速</th><th>操作</th></tr></thead>
-          <tbody id="portTunnelRows"></tbody>
-        </table>
-      </section>
-
-      <section id="tokensTab" class="tab-panel">
-        <div class="toolbar">
-          <select id="tokenResourceKind"><option value="VirtualNetwork">虚拟局域网</option><option value="PortTunnel">内网穿透</option></select>
-          <select id="tokenResourceSelect"></select>
-          <select id="tokenType"><option value="Permanent">永久</option><option value="Limited">限期</option><option value="OneTime">一次性</option></select>
-          <input id="tokenValidFrom" type="datetime-local">
-          <input id="tokenValidUntil" type="datetime-local">
-          <button id="createTokenButton" class="primary">创建 Token</button>
+    <main v-else-if="sessionChecked && me" class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <strong>ProxyNetworker</strong>
+          <span>{{ sessionLabel }}</span>
         </div>
-        <p id="plainTokenBox" class="token-box hidden"></p>
-        <table>
-          <thead><tr><th>资源</th><th>类型</th><th>预览</th><th>时间段</th><th>状态</th></tr></thead>
-          <tbody id="tokenRows"></tbody>
-        </table>
+        <nav class="nav">
+          <button
+            v-for="tab in visibleTabs"
+            :key="tab.key"
+            type="button"
+            :class="{ active: selectedTab === tab.key }"
+            @click="switchTab(tab.key)">
+            {{ tab.title }}
+          </button>
+        </nav>
+        <div class="sidebar-actions">
+          <button type="button" @click="openPasswordDialog">修改密码</button>
+          <button type="button" @click="logout">退出</button>
+        </div>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Management</p>
+            <h2>{{ pageTitle }}</h2>
+          </div>
+          <p class="status-text" :style="{ color: statusIsError ? 'var(--danger)' : 'var(--muted)' }">{{ statusMessage }}</p>
+        </header>
+
+        <section class="tab-panel" :class="{ active: selectedTab === 'overview' }">
+          <div class="metric-grid">
+            <div class="metric"><span>用户</span><strong>{{ users.length }}</strong></div>
+            <div class="metric"><span>虚拟局域网</span><strong>{{ virtualNetworks.length }}</strong></div>
+            <div class="metric"><span>内网穿透</span><strong>{{ portTunnels.length }}</strong></div>
+            <div class="metric"><span>访问 Token</span><strong>{{ tokens.length }}</strong></div>
+          </div>
+          <div class="section-row">
+            <section>
+              <h3>运行中隧道</h3>
+              <table>
+                <thead><tr><th>名称</th><th>类型</th><th>协议</th><th>入口</th><th>状态</th></tr></thead>
+                <tbody>
+                  <tr v-for="item in runtimeTunnels" :key="item.id || item.name">
+                    <td>{{ item.name }}</td>
+                    <td>{{ item.kind }}</td>
+                    <td>{{ item.protocol || '-' }}</td>
+                    <td>{{ item.publicEndpoint }}</td>
+                    <td>{{ item.status }}</td>
+                  </tr>
+                  <tr v-if="!runtimeTunnels.length"><td colspan="5" class="muted">暂无运行中隧道</td></tr>
+                </tbody>
+              </table>
+            </section>
+          </div>
+        </section>
+
+        <section v-if="isAdmin" class="tab-panel" :class="{ active: selectedTab === 'users' }">
+          <form class="form-grid" @submit.prevent="createUser">
+            <label><span>账号</span><input v-model.trim="userForm.username" required></label>
+            <label><span>初始密码</span><input v-model="userForm.password" required></label>
+            <label>
+              <span>角色</span>
+              <select v-model="userForm.role">
+                <option value="User">普通用户</option>
+                <option value="Admin">管理员</option>
+              </select>
+            </label>
+            <label><span>虚拟局域网配额</span><input v-model.number="userForm.maxVirtualNetworks" type="number" min="0"></label>
+            <label><span>内网穿透配额</span><input v-model.number="userForm.maxPortTunnels" type="number" min="0"></label>
+            <label><span>外网端口起始</span><input v-model.number="userForm.portRangeStart" type="number" :min="userPortMin" :max="userPortMax"></label>
+            <label><span>外网端口结束</span><input v-model.number="userForm.portRangeEnd" type="number" :min="userPortMin" :max="userPortMax"></label>
+            <label><span>带宽总量上限 (B)</span><input v-model.number="userForm.bandwidthLimitBytes" type="number" min="0" :max="bandwidthMax || null"></label>
+            <label><span>速度上限 (B/s)</span><input v-model.number="userForm.maxTrafficSpeedBytesPerSecond" type="number" min="0" :max="speedMax || null"></label>
+            <button type="submit" class="primary">创建用户</button>
+          </form>
+          <table>
+            <thead><tr><th>账号</th><th>角色</th><th>状态</th><th>虚拟网</th><th>隧道</th><th>外网端口范围</th><th>带宽总量</th><th>速度上限</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr v-for="user in users" :key="user.id">
+                <td>{{ user.username }}</td>
+                <td>
+                  <select v-model="user.role">
+                    <option value="User">普通用户</option>
+                    <option value="Admin">管理员</option>
+                  </select>
+                </td>
+                <td><label><input v-model="user.isDisabled" type="checkbox"> 禁用</label></td>
+                <td><input v-model.number="user.maxVirtualNetworks" type="number" min="0"></td>
+                <td><input v-model.number="user.maxPortTunnels" type="number" min="0"></td>
+                <td class="port-range">
+                  <input v-model.number="user.portRangeStart" type="number" :min="userPortMin" :max="userPortMax">
+                  <span>-</span>
+                  <input v-model.number="user.portRangeEnd" type="number" :min="userPortMin" :max="userPortMax">
+                </td>
+                <td><input v-model.number="user.bandwidthLimitBytes" type="number" min="0" :max="bandwidthMax || null"></td>
+                <td><input v-model.number="user.maxTrafficSpeedBytesPerSecond" type="number" min="0" :max="speedMax || null"></td>
+                <td>
+                  <div class="row-actions">
+                    <button type="button" @click="saveUser(user)">保存</button>
+                    <button type="button" @click="resetUserPassword(user)">重置密码</button>
+                    <span v-if="user.id === me.id" class="muted">当前账号</span>
+                    <button v-else type="button" class="danger" @click="deleteUser(user)">删除</button>
+                  </div>
+                </td>
+              </tr>
+              <tr v-if="!users.length"><td colspan="9" class="muted">暂无用户</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section class="tab-panel" :class="{ active: selectedTab === 'virtualNetworks' }">
+          <form class="form-grid compact" @submit.prevent="createVirtualNetwork">
+            <input v-model.trim="virtualNetworkForm.name" placeholder="名称" required>
+            <input v-model.trim="virtualNetworkForm.gatewayAddress" placeholder="网关地址" required>
+            <input v-model.number="virtualNetworkForm.prefixLength" type="number" min="1" max="32" required>
+            <button type="submit" class="primary">创建虚拟局域网</button>
+          </form>
+          <table>
+            <thead><tr><th>名称</th><th>网关</th><th>前缀</th><th>所有者</th><th>创建时间</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr v-for="item in virtualNetworks" :key="item.id">
+                <td>{{ item.name }}</td>
+                <td>{{ item.gatewayAddress }}</td>
+                <td>/{{ item.prefixLength }}</td>
+                <td>{{ ownerName(item.ownerUserId) }}</td>
+                <td>{{ fmtDate(item.createdAt) }}</td>
+                <td>
+                  <div class="row-actions">
+                    <button type="button" @click="openTokenTab('VirtualNetwork', item.id)">Token</button>
+                    <button type="button" class="danger" @click="deleteResource('VirtualNetwork', item.id, item.name)">删除</button>
+                  </div>
+                </td>
+              </tr>
+              <tr v-if="!virtualNetworks.length"><td colspan="6" class="muted">暂无虚拟局域网</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section class="tab-panel" :class="{ active: selectedTab === 'portTunnels' }">
+          <form class="form-grid compact" @submit.prevent="createPortTunnel">
+            <input v-model.trim="portTunnelForm.name" placeholder="名称" required>
+            <select v-model="portTunnelForm.protocol"><option value="tcp">TCP</option><option value="udp">UDP</option></select>
+            <input v-model.trim="portTunnelForm.privateHost" placeholder="内网地址" required>
+            <input v-model.number="portTunnelForm.privatePort" type="number" min="1" max="65535" placeholder="内网端口" required>
+            <button type="submit" class="primary">创建内网穿透</button>
+          </form>
+          <table>
+            <thead><tr><th>名称</th><th>协议</th><th>内网端口</th><th>服务器端口</th><th>限速</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr v-for="item in portTunnels" :key="item.id">
+                <td>{{ item.name }}</td>
+                <td>{{ String(item.protocol || '').toUpperCase() }}</td>
+                <td>{{ item.privateHost }}:{{ item.privatePort }}</td>
+                <td>{{ item.publicPort }}</td>
+                <td>{{ fmtBytes(item.maxTrafficSpeedBytesPerSecond) }}/s</td>
+                <td>
+                  <div class="row-actions">
+                    <button type="button" @click="openTokenTab('PortTunnel', item.id)">Token</button>
+                    <button type="button" class="danger" @click="deleteResource('PortTunnel', item.id, item.name)">删除</button>
+                  </div>
+                </td>
+              </tr>
+              <tr v-if="!portTunnels.length"><td colspan="6" class="muted">暂无内网穿透</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section class="tab-panel" :class="{ active: selectedTab === 'tokens' }">
+          <div class="toolbar">
+            <select v-model="selectedTokenKind" @change="onTokenKindChanged">
+              <option value="VirtualNetwork">虚拟局域网</option>
+              <option value="PortTunnel">内网穿透</option>
+            </select>
+            <select v-model="selectedTokenResourceId" :disabled="!tokenResourceItems.length" @change="onTokenResourceChanged">
+              <option v-for="item in tokenResourceItems" :key="item.id" :value="item.id">{{ item.name }}</option>
+            </select>
+            <select v-model="tokenForm.tokenType">
+              <option v-for="item in tokenTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+            </select>
+            <input v-model="tokenForm.validFrom" type="datetime-local">
+            <input v-model="tokenForm.validUntil" type="datetime-local">
+            <button type="button" class="primary" :disabled="!selectedTokenResourceId" @click="createToken">创建 Token</button>
+          </div>
+          <div v-if="plainToken" class="token-box">
+            <div>
+              <span class="muted">完整 Token 已保存，可稍后复制</span>
+              <code ref="plainTokenValue">{{ plainToken }}</code>
+            </div>
+            <button type="button" @click="copyText(plainToken, 'Token 已复制')">复制</button>
+          </div>
+          <table>
+            <thead><tr><th>资源</th><th>类型</th><th>预览</th><th>时间段</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr v-for="item in tokens" :key="item.id">
+                <td>{{ item.scopeKind }}</td>
+                <td>{{ item.tokenType }}</td>
+                <td>{{ item.tokenPreview }}</td>
+                <td>{{ fmtDate(item.validFrom) }} - {{ fmtDate(item.validUntil) }}</td>
+                <td>{{ item.isConsumed ? '已使用' : '可用' }}</td>
+                <td>
+                  <div class="row-actions">
+                    <button type="button" :title="item.hasStoredValue ? '复制完整 Token' : '旧 Token 未保存完整值，点击后会显示原因'" @click="copyStoredToken(item.id)">复制</button>
+                    <button type="button" class="danger" @click="deleteToken(item)">删除</button>
+                  </div>
+                </td>
+              </tr>
+              <tr v-if="!tokens.length"><td colspan="6" class="muted">暂无 Token</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section v-if="isAdmin" class="tab-panel" :class="{ active: selectedTab === 'settings' }">
+          <form class="form-grid compact" @submit.prevent="updateSettings">
+            <label><span>系统外网端口起始</span><input v-model.number="settingsForm.publicPortRangeStart" type="number" min="1" max="65535" required></label>
+            <label><span>系统外网端口结束</span><input v-model.number="settingsForm.publicPortRangeEnd" type="number" min="1" max="65535" required></label>
+            <label><span>系统带宽总量上限 (B)</span><input v-model.number="settingsForm.maxBandwidthLimitBytes" type="number" min="0" required></label>
+            <label><span>系统速度上限 (B/s)</span><input v-model.number="settingsForm.maxTrafficSpeedBytesPerSecond" type="number" min="0" required></label>
+            <button type="submit" class="primary">保存设置</button>
+          </form>
+          <table>
+            <thead><tr><th>外网端口范围</th><th>带宽总量上限</th><th>速度上限</th><th>更新时间</th></tr></thead>
+            <tbody>
+              <tr v-if="settings">
+                <td>{{ settings.publicPortRangeStart }} - {{ settings.publicPortRangeEnd }}</td>
+                <td>{{ fmtBytes(settings.maxBandwidthLimitBytes) }}</td>
+                <td>{{ fmtBytes(settings.maxTrafficSpeedBytesPerSecond) }}/s</td>
+                <td>{{ fmtDate(settings.updatedAt) }}</td>
+              </tr>
+              <tr v-else><td colspan="4" class="muted">仅管理员可见</td></tr>
+            </tbody>
+          </table>
+        </section>
       </section>
-    </section>
-  </main>
+    </main>
 
-  <dialog id="passwordDialog">
-    <form id="passwordForm" method="dialog" class="stack dialog-body">
-      <h3>修改密码</h3>
-      <input name="currentPassword" type="password" placeholder="当前密码" required>
-      <input name="newPassword" type="password" placeholder="新密码" required>
-      <div class="dialog-actions">
-        <button id="cancelPasswordButton" type="button" value="cancel">取消</button>
-        <button class="primary" type="submit" value="default">保存</button>
-      </div>
-    </form>
-  </dialog>
+    <dialog ref="passwordDialog">
+      <form class="stack dialog-body" @submit.prevent="changePassword">
+        <h3>修改密码</h3>
+        <input v-model="passwordForm.currentPassword" type="password" autocomplete="current-password" placeholder="当前密码" required>
+        <input v-model="passwordForm.newPassword" type="password" autocomplete="new-password" placeholder="新密码" required>
+        <div class="dialog-actions">
+          <button type="button" value="cancel" @click="closePasswordDialog">取消</button>
+          <button class="primary" type="submit" value="default">保存</button>
+        </div>
+      </form>
+    </dialog>
+  </div>
 
-  <script src="/app.js"></script>
+  <script defer src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script defer src="/app.js"></script>
 </body>
 </html>

@@ -36,7 +36,7 @@ public sealed class WintunAdapterWrapper : IDisposable
         TunnelType = tunnelType;
         IsOpen = isOpen;
         _loggerCallback = DefaultWintunLoggerCallBack;
-        WintunNative.WintunSetLogger(_loggerCallback);
+        WintunNative.WintunSetLogger(Marshal.GetFunctionPointerForDelegate(_loggerCallback));
     }
 
     public WintunLoggerCallBack? OnLog { get; set; }
@@ -273,8 +273,11 @@ public sealed class WintunAdapterWrapper : IDisposable
 
         MIB_UNICASTIPADDRESS_ROW addressRow;
         InitializeUnicastIpAddressEntry(out addressRow);
-        WintunNative.WintunGetAdapterLUID(_adapterPtr, out NET_LUID luid);
-        addressRow.InterfaceLuid = luid;
+        WintunNative.WintunGetAdapterLUID(_adapterPtr, out WintunNative.NetLuidLh luid);
+        addressRow.InterfaceLuid = new NET_LUID
+        {
+            Value = luid.Value
+        };
         addressRow.Address.Ipv4.sin_family = ADDRESS_FAMILY.AF_INET;
         addressRow.Address.Ipv4.sin_addr = new IN_ADDR(ipAddress.GetAddressBytes());
         addressRow.OnLinkPrefixLength = onLinkPrefixLength;
