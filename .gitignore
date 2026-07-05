@@ -12,3 +12,5 @@
 **/[Bb]in/
 **/[Oo]bj/
 ProxyNetworker.Server/data-protection-keys/
+ProxyNetworker.Server/logs/
+ProxyNetworker.Client/logs/

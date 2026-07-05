@@ -2,6 +2,8 @@ using System.Net;
 using System.Net.Sockets;
 using ProxyNetworker.Core;
 using ProxyNetworker.Core.PortTunnels;
+using Serilog;
+using Serilog.Events;
 
 internal static class ProxyNetworkerClientApp
 {
@@ -17,11 +19,13 @@ internal static class ProxyNetworkerClientApp
         }
         catch (ArgumentException ex)
         {
+            Log.Warning(ex, "Client command failed: {Message}", ex.Message);
             Console.Error.WriteLine(ex.Message);
             return 2;
         }
         catch (Exception ex)
         {
+            Log.Error(ex, "Client command failed.");
             Console.Error.WriteLine(ex.Message);
             return 1;
         }
@@ -339,7 +343,9 @@ internal static class ProxyNetworkerClientApp
         }
 
         using var shutdown = CreateShutdownSource();
+        Console.WriteLine($"Loading client config: {Path.GetFullPath(path)}");
         var config = await ProxyNetworkerClientConfig.LoadAsync(path, shutdown.Token).ConfigureAwait(false);
+        var defaultServer = config.GetDefaultServer();
         var disposables = new List<IDisposable>();
         var tasks = new List<Task>();
 
@@ -347,10 +353,22 @@ internal static class ProxyNetworkerClientApp
         {
             foreach (var item in config.PortTunnels.Where(static item => item.Enabled))
             {
-                var server = item.Server ?? config.Server;
+                var server = item.Server ?? defaultServer;
                 if (string.IsNullOrWhiteSpace(server) || string.IsNullOrWhiteSpace(item.Token))
                 {
                     Console.Error.WriteLine($"Skipped Port Tunnel '{item.Name ?? "(unnamed)"}': server or token is empty.");
+                    continue;
+                }
+
+                if (IsPlaceholderToken(item.Token))
+                {
+                    Console.Error.WriteLine($"Skipped Port Tunnel '{item.Name ?? "(unnamed)"}': token is still the sample placeholder.");
+                    continue;
+                }
+
+                if (!item.Token.StartsWith("ptun_", StringComparison.OrdinalIgnoreCase))
+                {
+                    Console.Error.WriteLine($"Skipped Port Tunnel '{item.Name ?? "(unnamed)"}': token must start with ptun_.");
                     continue;
                 }
 
@@ -365,15 +383,27 @@ internal static class ProxyNetworkerClientApp
             {
                 if (!string.IsNullOrWhiteSpace(virtualNetwork.Token))
                 {
-                    var server = virtualNetwork.Server ?? config.Server;
+                    var server = virtualNetwork.Server ?? defaultServer;
                     if (string.IsNullOrWhiteSpace(server))
                     {
                         Console.Error.WriteLine("Skipped Virtual Network: server is empty.");
                     }
                     else
                     {
-                        disposables.Add(await StartVirtualNetworkTokenAsync(server, virtualNetwork.Token, virtualNetwork.Name, shutdown.Token).ConfigureAwait(false));
-                        tasks.Add(WaitUntilCancelledAsync(shutdown.Token));
+                        if (IsPlaceholderToken(virtualNetwork.Token))
+                        {
+                            Console.Error.WriteLine("Skipped Virtual Network: token is still the sample placeholder.");
+                        }
+                        else if (!virtualNetwork.Token.StartsWith("vnet_", StringComparison.OrdinalIgnoreCase))
+                        {
+                            Console.Error.WriteLine("Skipped Virtual Network: token must start with vnet_.");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Starting Virtual Network '{virtualNetwork.Name}' by token from {server}.");
+                            disposables.Add(await StartVirtualNetworkTokenAsync(server, virtualNetwork.Token, virtualNetwork.Name, shutdown.Token).ConfigureAwait(false));
+                            tasks.Add(WaitUntilCancelledAsync(shutdown.Token));
+                        }
                     }
                 }
                 else
@@ -419,9 +449,29 @@ internal static class ProxyNetworkerClientApp
 
     private static string ResolveDefaultConfigPath()
     {
-        return File.Exists("appsettings.json")
-            ? "appsettings.json"
-            : "proxynetworker.client.json";
+        var baseDirectory = AppContext.BaseDirectory;
+        var candidates = new[]
+        {
+            "appsettings.json",
+            "proxynetworker.client.json",
+            Path.Combine(baseDirectory, "appsettings.json"),
+            Path.Combine(baseDirectory, "proxynetworker.client.json")
+        };
+
+        foreach (var candidate in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return Path.Combine(baseDirectory, "appsettings.json");
+    }
+
+    private static bool IsPlaceholderToken(string token)
+    {
+        return token.Contains("replace_this_token", StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task<IDisposable> StartVirtualNetworkDirectAsync(DirectVirtualNetworkClientConfig config, CancellationToken cancellationToken)
@@ -685,20 +735,30 @@ internal static class ProxyNetworkerClientApp
 
     private static void WriteLog(ProxyNetworkerLogEntry entry)
     {
-        Console.WriteLine($"[{entry.Timestamp:O}] {entry.Level}: {entry.Message}");
-        if (entry.Exception is not null)
-        {
-            Console.WriteLine(entry.Exception);
-        }
+        WriteLogEntry(Log.Logger, entry);
     }
 
     private static void WriteNamedLog(string name, ProxyNetworkerLogEntry entry)
     {
-        Console.WriteLine($"[{entry.Timestamp:O}] {name} {entry.Level}: {entry.Message}");
-        if (entry.Exception is not null)
+        WriteLogEntry(Log.ForContext("ClientEntry", name), entry);
+    }
+
+    private static void WriteLogEntry(Serilog.ILogger logger, ProxyNetworkerLogEntry entry)
+    {
+        logger.Write(ToSerilogLevel(entry.Level), entry.Exception, "{Message}", entry.Message);
+    }
+
+    private static LogEventLevel ToSerilogLevel(ProxyNetworkerLogLevel level)
+    {
+        return level switch
         {
-            Console.WriteLine(entry.Exception);
-        }
+            ProxyNetworkerLogLevel.Trace => LogEventLevel.Verbose,
+            ProxyNetworkerLogLevel.Debug => LogEventLevel.Debug,
+            ProxyNetworkerLogLevel.Information => LogEventLevel.Information,
+            ProxyNetworkerLogLevel.Warning => LogEventLevel.Warning,
+            ProxyNetworkerLogLevel.Error => LogEventLevel.Error,
+            _ => LogEventLevel.Information
+        };
     }
 
     private static void PrintUsage()

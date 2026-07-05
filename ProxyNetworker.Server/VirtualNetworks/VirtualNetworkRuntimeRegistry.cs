@@ -44,7 +44,7 @@ public sealed class VirtualNetworkRuntimeRegistry : IDisposable
             var runtime = await StartAsync(definition, cancellationToken).ConfigureAwait(false);
             if (!_networks.TryAdd(definition.Id, runtime))
             {
-                runtime.Tunnel.Dispose();
+                runtime.Relay.Dispose();
                 return _networks[definition.Id].Summary;
             }
 
@@ -62,7 +62,7 @@ public sealed class VirtualNetworkRuntimeRegistry : IDisposable
         {
             if (_networks.TryRemove(item.Key, out var runtime))
             {
-                runtime.Tunnel.Dispose();
+                runtime.Relay.Dispose();
             }
         }
 
@@ -78,60 +78,36 @@ public sealed class VirtualNetworkRuntimeRegistry : IDisposable
     private async Task<ActiveVirtualNetwork> StartAsync(VirtualNetworkRecord definition, CancellationToken cancellationToken)
     {
         var gatewayAddress = IPAddress.Parse(definition.GatewayAddress);
-        var name = CreateTunName(definition);
-        var tunDevice = TunDeviceFactory.Create(new TunDeviceOptions
-        {
-            Name = name,
-            TunnelType = "ProxyNetworker",
-            Address = gatewayAddress,
-            PrefixLength = definition.PrefixLength,
-            Mtu = definition.Mtu
-        }, LogCoreEntry);
+        var relay = new VirtualNetworkRelay(
+            new VirtualNetworkTunnelOptions
+            {
+                BindEndPoint = new IPEndPoint(IPAddress.Any, definition.ListenPort),
+                NodeAddress = gatewayAddress,
+                PrefixLength = definition.PrefixLength,
+                NodeName = definition.Name
+            },
+            LogCoreEntry);
 
-        try
-        {
-            var tunnel = new VirtualNetworkTunnel(
-                tunDevice,
-                new VirtualNetworkTunnelOptions
-                {
-                    BindEndPoint = new IPEndPoint(IPAddress.Any, definition.ListenPort),
-                    NodeAddress = gatewayAddress,
-                    PrefixLength = definition.PrefixLength,
-                    NodeName = definition.Name
-                },
-                LogCoreEntry);
+        await relay.StartAsync(cancellationToken).ConfigureAwait(false);
 
-            await tunnel.StartAsync(cancellationToken).ConfigureAwait(false);
+        var summary = new TunnelSummary(
+            definition.Id,
+            definition.Name,
+            "virtual-network",
+            "udp",
+            $"0.0.0.0:{definition.ListenPort}",
+            null,
+            DateTimeOffset.UtcNow,
+            "running");
 
-            var summary = new TunnelSummary(
-                definition.Id,
-                definition.Name,
-                "virtual-network",
-                "udp",
-                $"0.0.0.0:{definition.ListenPort}",
-                null,
-                DateTimeOffset.UtcNow,
-                "running");
+        _logger.LogInformation(
+            "Virtual Network {NetworkName} relay is running on UDP {ListenPort} with gateway {GatewayAddress}/{PrefixLength}.",
+            definition.Name,
+            definition.ListenPort,
+            definition.GatewayAddress,
+            definition.PrefixLength);
 
-            _logger.LogInformation(
-                "Virtual Network {NetworkName} is running on UDP {ListenPort} with gateway {GatewayAddress}/{PrefixLength}.",
-                definition.Name,
-                definition.ListenPort,
-                definition.GatewayAddress,
-                definition.PrefixLength);
-
-            return new ActiveVirtualNetwork(summary, tunnel);
-        }
-        catch
-        {
-            tunDevice.Dispose();
-            throw;
-        }
-    }
-
-    private static string CreateTunName(VirtualNetworkRecord definition)
-    {
-        return $"pn{definition.Id[..Math.Min(10, definition.Id.Length)]}";
+        return new ActiveVirtualNetwork(summary, relay);
     }
 
     private void LogCoreEntry(ProxyNetworkerLogEntry entry)
@@ -149,5 +125,5 @@ public sealed class VirtualNetworkRuntimeRegistry : IDisposable
         _logger.Log(level, entry.Exception, "{Message}", entry.Message);
     }
 
-    private sealed record ActiveVirtualNetwork(TunnelSummary Summary, VirtualNetworkTunnel Tunnel);
+    private sealed record ActiveVirtualNetwork(TunnelSummary Summary, VirtualNetworkRelay Relay);
 }

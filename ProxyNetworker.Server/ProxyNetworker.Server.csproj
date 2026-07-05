@@ -5,7 +5,12 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <NoWin32Manifest>true</NoWin32Manifest>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="proxy-networker.db" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\ProxyNetworker.Core\ProxyNetworker.Core.csproj" />
@@ -17,7 +22,26 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.9" />
+    <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
+    <PackageReference Include="Serilog.Settings.Configuration" Version="10.0.1" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
+    <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+	  <None Include="proxy-networker.db">
+	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="proxy-networker.db-shm">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="proxy-networker.db-wal">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>

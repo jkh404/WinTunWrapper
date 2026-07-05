@@ -4,6 +4,8 @@ internal sealed class ProxyNetworkerClientConfig
 {
     public const string AppSettingsSectionName = "ProxyNetworkerClient";
 
+    public string? ApiServer { get; set; }
+
     public string? Server { get; set; }
 
     public List<RemotePortTunnelClientConfig> PortTunnels { get; set; } = [];
@@ -31,17 +33,30 @@ internal sealed class ProxyNetworkerClientConfig
 
     public static async Task WriteSampleAsync(string path, CancellationToken cancellationToken)
     {
-        var sample = CreateSample();
-        var output = IsAppSettingsPath(path)
-            ? new Dictionary<string, ProxyNetworkerClientConfig>(StringComparer.Ordinal)
+        var sample = CreateSampleJson();
+        object output;
+        if (IsAppSettingsPath(path))
+        {
+            output = new Dictionary<string, object>(StringComparer.Ordinal)
             {
-                [AppSettingsSectionName] = sample
-            }
-            : (object)sample;
+                [AppSettingsSectionName] = sample,
+                ["Serilog"] = CreateSerilogSampleJson()
+            };
+        }
+        else
+        {
+            sample["Serilog"] = CreateSerilogSampleJson();
+            output = sample;
+        }
 
         await using var stream = File.Create(path);
         await JsonSerializer.SerializeAsync(stream, output, JsonOptions, cancellationToken).ConfigureAwait(false);
         await stream.WriteAsync("\n"u8.ToArray(), cancellationToken).ConfigureAwait(false);
+    }
+
+    public string? GetDefaultServer()
+    {
+        return ApiServer ?? Server;
     }
 
     private static ProxyNetworkerClientConfig DeserializeConfig(JsonElement element)
@@ -49,30 +64,41 @@ internal sealed class ProxyNetworkerClientConfig
         return element.Deserialize<ProxyNetworkerClientConfig>(JsonOptions) ?? new ProxyNetworkerClientConfig();
     }
 
-    private static ProxyNetworkerClientConfig CreateSample()
+    private static Dictionary<string, object> CreateSampleJson()
     {
-        return new ProxyNetworkerClientConfig
+        return new Dictionary<string, object>(StringComparer.Ordinal)
         {
-            Server = "http://127.0.0.1:5000",
-            PortTunnels =
-            [
-                new RemotePortTunnelClientConfig
-                {
-                    Name = "web",
-                    Token = "ptun_replace_this_token"
-                }
-            ],
-            VirtualNetwork = new DirectVirtualNetworkClientConfig
+            ["apiServer"] = "http://127.0.0.1:12301",
+            ["portTunnels"] = new[]
             {
-                Enabled = false,
-                Name = "pn-client",
-                Server = "http://127.0.0.1:5000",
-                Token = "vnet_replace_this_token",
-                ServerHost = "127.0.0.1",
-                ServerPort = 51820,
-                TunAddress = "10.66.0.2",
-                PrefixLength = 24,
-                Mtu = 1400
+                new
+                {
+                    enabled = false,
+                    name = "web",
+                    token = "ptun_replace_this_token"
+                }
+            },
+            ["virtualNetwork"] = new
+            {
+                enabled = false,
+                name = "pn-client",
+                token = "vnet_replace_this_token"
+            }
+        };
+    }
+
+    private static object CreateSerilogSampleJson()
+    {
+        return new Dictionary<string, object>(StringComparer.Ordinal)
+        {
+            ["MinimumLevel"] = new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                ["Default"] = "Information",
+                ["Override"] = new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["Microsoft"] = "Warning",
+                    ["System"] = "Warning"
+                }
             }
         };
     }

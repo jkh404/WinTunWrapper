@@ -115,6 +115,13 @@ internal sealed class ManagementApiClient : IDisposable
         using var request = new HttpRequestMessage(HttpMethod.Get, "api/client/virtual-networks/config");
         request.Headers.TryAddWithoutValidation("X-ProxyNetworker-Token", token);
         var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            throw new InvalidOperationException(
+                "Virtual Network token was rejected by the server. " +
+                "Check that the configured vnet_ token was created on this server and is not expired or already consumed.");
+        }
+
         return await ReadRequiredAsync<VirtualNetworkClientConfigResponse>(response, cancellationToken).ConfigureAwait(false);
     }
 
