@@ -4,13 +4,13 @@ public sealed class CreateVirtualNetworkDefinitionRequest
 {
     public string Name { get; set; } = string.Empty;
 
-    public string GatewayAddress { get; set; } = "10.66.0.1";
+    public string GatewayAddress { get; set; } = string.Empty;
 
-    public int PrefixLength { get; set; } = 24;
+    public int PrefixLength { get; set; }
 
     public int ListenPort { get; set; }
 
-    public int Mtu { get; set; } = 1400;
+    public int Mtu { get; set; }
 }
 
 public sealed record VirtualNetworkDefinitionResponse(
@@ -75,9 +75,9 @@ public sealed record AccessTokenValueResponse(string PlainTextToken);
 
 public sealed class UpdateSystemSettingsRequest
 {
-    public int PublicPortRangeStart { get; set; } = 1;
+    public int PublicPortRangeStart { get; set; }
 
-    public int PublicPortRangeEnd { get; set; } = 65535;
+    public int PublicPortRangeEnd { get; set; }
 
     public long MaxBandwidthLimitBytes { get; set; }
 

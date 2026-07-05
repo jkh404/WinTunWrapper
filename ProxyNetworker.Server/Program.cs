@@ -80,6 +80,11 @@ try
         .ValidateDataAnnotations()
         .ValidateOnStart();
     builder.Services.AddSingleton<IValidateOptions<SystemSettingsOptions>, SystemSettingsOptionsValidator>();
+    builder.Services.AddOptions<NetworkDefaultsOptions>()
+        .BindConfiguration(NetworkDefaultsOptions.Section)
+        .ValidateDataAnnotations()
+        .ValidateOnStart();
+    builder.Services.AddSingleton<IValidateOptions<NetworkDefaultsOptions>, NetworkDefaultsOptionsValidator>();
     builder.Services.AddHostedService<DatabaseInitializer>();
     builder.Services.AddSingleton<PasswordHasher>();
     builder.Services.AddSingleton<TokenGenerator>();

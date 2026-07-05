@@ -10,15 +10,18 @@ public sealed class DatabaseInitializer : IHostedService
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<DatabaseInitializer> _logger;
     private readonly SystemSettingsOptions _systemSettingsOptions;
+    private readonly NetworkDefaultsOptions _networkDefaultsOptions;
 
     public DatabaseInitializer(
         IServiceProvider serviceProvider,
         ILogger<DatabaseInitializer> logger,
-        IOptions<SystemSettingsOptions> systemSettingsOptions)
+        IOptions<SystemSettingsOptions> systemSettingsOptions,
+        IOptions<NetworkDefaultsOptions> networkDefaultsOptions)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
         _systemSettingsOptions = systemSettingsOptions.Value;
+        _networkDefaultsOptions = networkDefaultsOptions.Value;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -27,10 +30,10 @@ public sealed class DatabaseInitializer : IHostedService
         var db = scope.ServiceProvider.GetRequiredService<ProxyNetworkerDbContext>();
         var passwordHasher = scope.ServiceProvider.GetRequiredService<PasswordHasher>();
         await db.Database.EnsureCreatedAsync(cancellationToken).ConfigureAwait(false);
-        await EnsureVirtualNetworkColumnsAsync(db, cancellationToken).ConfigureAwait(false);
+        await EnsureVirtualNetworkColumnsAsync(db, _networkDefaultsOptions, cancellationToken).ConfigureAwait(false);
         await EnsureAccessTokenColumnsAsync(db, cancellationToken).ConfigureAwait(false);
         await EnsureSystemSettingsAsync(db, _systemSettingsOptions, cancellationToken).ConfigureAwait(false);
-        await EnsureDefaultAdminAsync(db, passwordHasher, cancellationToken).ConfigureAwait(false);
+        await EnsureDefaultAdminAsync(db, passwordHasher, _systemSettingsOptions, cancellationToken).ConfigureAwait(false);
         _logger.LogInformation("SQLite database is ready at {ConnectionString}.", db.Database.GetConnectionString());
     }
 
@@ -41,19 +44,22 @@ public sealed class DatabaseInitializer : IHostedService
 
     private static async Task EnsureVirtualNetworkColumnsAsync(
         ProxyNetworkerDbContext db,
+        NetworkDefaultsOptions networkDefaults,
         CancellationToken cancellationToken)
     {
         if (!await ColumnExistsAsync(db, "VirtualNetworks", "ListenPort", cancellationToken).ConfigureAwait(false))
         {
+            var sql = $"""ALTER TABLE "VirtualNetworks" ADD COLUMN "ListenPort" INTEGER NOT NULL DEFAULT {networkDefaults.VirtualNetworkListenPort};""";
             await db.Database.ExecuteSqlRawAsync(
-                """ALTER TABLE "VirtualNetworks" ADD COLUMN "ListenPort" INTEGER NOT NULL DEFAULT 51820;""",
+                sql,
                 cancellationToken).ConfigureAwait(false);
         }
 
         if (!await ColumnExistsAsync(db, "VirtualNetworks", "Mtu", cancellationToken).ConfigureAwait(false))
         {
+            var sql = $"""ALTER TABLE "VirtualNetworks" ADD COLUMN "Mtu" INTEGER NOT NULL DEFAULT {networkDefaults.VirtualNetworkMtu};""";
             await db.Database.ExecuteSqlRawAsync(
-                """ALTER TABLE "VirtualNetworks" ADD COLUMN "Mtu" INTEGER NOT NULL DEFAULT 1400;""",
+                sql,
                 cancellationToken).ConfigureAwait(false);
         }
     }
@@ -132,6 +138,7 @@ public sealed class DatabaseInitializer : IHostedService
     private static async Task EnsureDefaultAdminAsync(
         ProxyNetworkerDbContext db,
         PasswordHasher passwordHasher,
+        SystemSettingsOptions options,
         CancellationToken cancellationToken)
     {
         if (await db.Users.AnyAsync(cancellationToken).ConfigureAwait(false))
@@ -147,8 +154,8 @@ public sealed class DatabaseInitializer : IHostedService
             Role = UserRoles.Admin,
             MaxVirtualNetworks = int.MaxValue,
             MaxPortTunnels = int.MaxValue,
-            PortRangeStart = 1,
-            PortRangeEnd = 65535,
+            PortRangeStart = options.PublicPortRangeStart,
+            PortRangeEnd = options.PublicPortRangeEnd,
             BandwidthLimitBytes = 0,
             MaxTrafficSpeedBytesPerSecond = 0,
             CreatedAt = DateTimeOffset.UtcNow,

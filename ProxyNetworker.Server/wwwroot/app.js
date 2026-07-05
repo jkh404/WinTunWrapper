@@ -110,8 +110,8 @@ function defaultUserForm(settings = null) {
     role: 'User',
     maxVirtualNetworks: 1,
     maxPortTunnels: 3,
-    portRangeStart: settings?.publicPortRangeStart ?? 20000,
-    portRangeEnd: settings?.publicPortRangeEnd ?? 30000,
+    portRangeStart: settings?.publicPortRangeStart ?? 0,
+    portRangeEnd: settings?.publicPortRangeEnd ?? 0,
     bandwidthLimitBytes: 0,
     maxTrafficSpeedBytesPerSecond: 0
   };

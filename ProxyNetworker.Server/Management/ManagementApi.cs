@@ -4,6 +4,7 @@ using System.Net;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using ProxyNetworker.Server.Data;
 using ProxyNetworker.Server.Security;
 
@@ -132,14 +133,16 @@ public static class ManagementApi
         CreateUserRequest request,
         ProxyNetworkerDbContext db,
         PasswordHasher passwordHasher,
+        IOptions<SystemSettingsOptions> systemSettingsOptions,
         CancellationToken cancellationToken)
     {
-        var settings = await GetSystemSettingsAsync(db, cancellationToken).ConfigureAwait(false);
+        var settings = await GetSystemSettingsAsync(db, systemSettingsOptions.Value, cancellationToken).ConfigureAwait(false);
+        var (portRangeStart, portRangeEnd) = ResolveUserPortRange(request.PortRangeStart, request.PortRangeEnd, settings);
         var validation = ValidateUserInputs(
             request.Username,
             request.Role,
-            request.PortRangeStart,
-            request.PortRangeEnd,
+            portRangeStart,
+            portRangeEnd,
             request.BandwidthLimitBytes,
             request.MaxTrafficSpeedBytesPerSecond,
             settings);
@@ -161,8 +164,8 @@ public static class ManagementApi
             Role = request.Role,
             MaxVirtualNetworks = request.MaxVirtualNetworks,
             MaxPortTunnels = request.MaxPortTunnels,
-            PortRangeStart = request.PortRangeStart,
-            PortRangeEnd = request.PortRangeEnd,
+            PortRangeStart = portRangeStart,
+            PortRangeEnd = portRangeEnd,
             BandwidthLimitBytes = Math.Max(0, request.BandwidthLimitBytes),
             MaxTrafficSpeedBytesPerSecond = Math.Max(0, request.MaxTrafficSpeedBytesPerSecond),
             CreatedAt = DateTimeOffset.UtcNow,
@@ -178,6 +181,7 @@ public static class ManagementApi
         string id,
         UpdateUserRequest request,
         ProxyNetworkerDbContext db,
+        IOptions<SystemSettingsOptions> systemSettingsOptions,
         CancellationToken cancellationToken)
     {
         var user = await db.Users.FirstOrDefaultAsync(item => item.Id == id, cancellationToken).ConfigureAwait(false);
@@ -186,12 +190,13 @@ public static class ManagementApi
             return TypedResults.NotFound(new ErrorResponse("User was not found."));
         }
 
-        var settings = await GetSystemSettingsAsync(db, cancellationToken).ConfigureAwait(false);
+        var settings = await GetSystemSettingsAsync(db, systemSettingsOptions.Value, cancellationToken).ConfigureAwait(false);
+        var (portRangeStart, portRangeEnd) = ResolveUserPortRange(request.PortRangeStart, request.PortRangeEnd, settings);
         var validation = ValidateUserInputs(
             user.Username,
             request.Role,
-            request.PortRangeStart,
-            request.PortRangeEnd,
+            portRangeStart,
+            portRangeEnd,
             request.BandwidthLimitBytes,
             request.MaxTrafficSpeedBytesPerSecond,
             settings);
@@ -204,8 +209,8 @@ public static class ManagementApi
         user.IsDisabled = request.IsDisabled;
         user.MaxVirtualNetworks = request.MaxVirtualNetworks;
         user.MaxPortTunnels = request.MaxPortTunnels;
-        user.PortRangeStart = request.PortRangeStart;
-        user.PortRangeEnd = request.PortRangeEnd;
+        user.PortRangeStart = portRangeStart;
+        user.PortRangeEnd = portRangeEnd;
         user.BandwidthLimitBytes = Math.Max(0, request.BandwidthLimitBytes);
         user.MaxTrafficSpeedBytesPerSecond = Math.Max(0, request.MaxTrafficSpeedBytesPerSecond);
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -300,15 +305,17 @@ public static class ManagementApi
 
     private static async Task<IResult> GetSystemSettings(
         ProxyNetworkerDbContext db,
+        IOptions<SystemSettingsOptions> systemSettingsOptions,
         CancellationToken cancellationToken)
     {
-        var settings = await GetSystemSettingsAsync(db, cancellationToken).ConfigureAwait(false);
+        var settings = await GetSystemSettingsAsync(db, systemSettingsOptions.Value, cancellationToken).ConfigureAwait(false);
         return TypedResults.Ok(ToSystemSettingsResponse(settings));
     }
 
     private static async Task<IResult> UpdateSystemSettings(
         UpdateSystemSettingsRequest request,
         ProxyNetworkerDbContext db,
+        IOptions<SystemSettingsOptions> systemSettingsOptions,
         CancellationToken cancellationToken)
     {
         var validation = ValidateSystemSettings(
@@ -333,7 +340,7 @@ public static class ManagementApi
             return TypedResults.BadRequest(new ErrorResponse($"Existing public port {conflictingPort.Value} is outside the requested system range."));
         }
 
-        var settings = await GetSystemSettingsAsync(db, cancellationToken).ConfigureAwait(false);
+        var settings = await GetSystemSettingsAsync(db, systemSettingsOptions.Value, cancellationToken).ConfigureAwait(false);
         settings.PublicPortRangeStart = request.PublicPortRangeStart;
         settings.PublicPortRangeEnd = request.PublicPortRangeEnd;
         settings.MaxBandwidthLimitBytes = Math.Max(0, request.MaxBandwidthLimitBytes);
@@ -364,6 +371,8 @@ public static class ManagementApi
         CreateVirtualNetworkDefinitionRequest request,
         ClaimsPrincipal principal,
         ProxyNetworkerDbContext db,
+        IOptions<SystemSettingsOptions> systemSettingsOptions,
+        IOptions<NetworkDefaultsOptions> networkDefaultsOptions,
         CancellationToken cancellationToken)
     {
         var user = await CurrentUserAsync(principal, db, cancellationToken).ConfigureAwait(false);
@@ -386,28 +395,39 @@ public static class ManagementApi
             return TypedResults.BadRequest(new ErrorResponse("Name cannot be empty."));
         }
 
-        if (!IPAddress.TryParse(request.GatewayAddress, out var gatewayAddress) ||
+        var networkDefaults = networkDefaultsOptions.Value;
+        var gatewayAddressValue = string.IsNullOrWhiteSpace(request.GatewayAddress)
+            ? networkDefaults.VirtualNetworkGatewayAddress
+            : request.GatewayAddress.Trim();
+        var prefixLength = request.PrefixLength > 0
+            ? request.PrefixLength
+            : networkDefaults.VirtualNetworkPrefixLength;
+        var mtu = request.Mtu > 0
+            ? request.Mtu
+            : networkDefaults.VirtualNetworkMtu;
+
+        if (!IPAddress.TryParse(gatewayAddressValue, out var gatewayAddress) ||
             gatewayAddress.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
         {
             return TypedResults.BadRequest(new ErrorResponse("Gateway address must be a valid IPv4 address."));
         }
 
-        if (request.PrefixLength < 1 || request.PrefixLength > 30)
+        if (prefixLength < 1 || prefixLength > 30)
         {
             return TypedResults.BadRequest(new ErrorResponse("Prefix length must be between 1 and 30 so clients can receive usable addresses."));
         }
 
-        if (!IsUsableIPv4Host(gatewayAddress, request.PrefixLength))
+        if (!IsUsableIPv4Host(gatewayAddress, prefixLength))
         {
             return TypedResults.BadRequest(new ErrorResponse("Gateway address cannot be the network or broadcast address."));
         }
 
-        if (request.Mtu < 576 || request.Mtu > 65535)
+        if (mtu < 576 || mtu > 65535)
         {
             return TypedResults.BadRequest(new ErrorResponse("MTU must be between 576 and 65535."));
         }
 
-        var settings = await GetSystemSettingsAsync(db, cancellationToken).ConfigureAwait(false);
+        var settings = await GetSystemSettingsAsync(db, systemSettingsOptions.Value, cancellationToken).ConfigureAwait(false);
         var listenPort = request.ListenPort > 0
             ? await ValidateRequestedPortAsync(request.ListenPort, user, settings, db, cancellationToken).ConfigureAwait(false)
             : await AllocateAssignablePortAsync(user, settings, db, cancellationToken).ConfigureAwait(false);
@@ -421,10 +441,10 @@ public static class ManagementApi
             Id = Guid.NewGuid().ToString("N"),
             OwnerUserId = user.Id,
             Name = request.Name.Trim(),
-            GatewayAddress = request.GatewayAddress,
-            PrefixLength = request.PrefixLength,
+            GatewayAddress = gatewayAddressValue,
+            PrefixLength = prefixLength,
             ListenPort = listenPort.Value,
-            Mtu = request.Mtu,
+            Mtu = mtu,
             CreatedAt = DateTimeOffset.UtcNow
         };
 
@@ -477,6 +497,7 @@ public static class ManagementApi
         CreatePortTunnelDefinitionRequest request,
         ClaimsPrincipal principal,
         ProxyNetworkerDbContext db,
+        IOptions<SystemSettingsOptions> systemSettingsOptions,
         CancellationToken cancellationToken)
     {
         var user = await CurrentUserAsync(principal, db, cancellationToken).ConfigureAwait(false);
@@ -505,7 +526,7 @@ public static class ManagementApi
             }
         }
 
-        var settings = await GetSystemSettingsAsync(db, cancellationToken).ConfigureAwait(false);
+        var settings = await GetSystemSettingsAsync(db, systemSettingsOptions.Value, cancellationToken).ConfigureAwait(false);
         var publicPort = await AllocateAssignablePortAsync(user, settings, db, cancellationToken).ConfigureAwait(false);
         if (publicPort is null)
         {
@@ -743,6 +764,7 @@ public static class ManagementApi
 
     private static async Task<SystemSettingsRecord> GetSystemSettingsAsync(
         ProxyNetworkerDbContext db,
+        SystemSettingsOptions options,
         CancellationToken cancellationToken)
     {
         var settings = await db.SystemSettings.FirstOrDefaultAsync(
@@ -756,10 +778,10 @@ public static class ManagementApi
         settings = new SystemSettingsRecord
         {
             Id = SystemSettingsIds.Default,
-            PublicPortRangeStart = 1,
-            PublicPortRangeEnd = 65535,
-            MaxBandwidthLimitBytes = 0,
-            MaxTrafficSpeedBytesPerSecond = 0,
+            PublicPortRangeStart = options.PublicPortRangeStart,
+            PublicPortRangeEnd = options.PublicPortRangeEnd,
+            MaxBandwidthLimitBytes = options.MaxBandwidthLimitBytes,
+            MaxTrafficSpeedBytesPerSecond = options.MaxTrafficSpeedBytesPerSecond,
             UpdatedAt = DateTimeOffset.UtcNow
         };
         db.SystemSettings.Add(settings);
@@ -933,6 +955,16 @@ public static class ManagementApi
         }
 
         return query.FirstOrDefaultAsync(item => item.Id == id, cancellationToken);
+    }
+
+    private static (int Start, int End) ResolveUserPortRange(
+        int requestedStart,
+        int requestedEnd,
+        SystemSettingsRecord settings)
+    {
+        return requestedStart <= 0 && requestedEnd <= 0
+            ? (settings.PublicPortRangeStart, settings.PublicPortRangeEnd)
+            : (requestedStart, requestedEnd);
     }
 
     private static ErrorResponse? ValidateUserInputs(

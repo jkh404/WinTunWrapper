@@ -17,9 +17,9 @@ public sealed class CreatePortTunnelRequest
 
     public string Protocol { get; set; } = "tcp";
 
-    public string ListenAddress { get; set; } = "0.0.0.0";
+    public string ListenAddress { get; set; } = string.Empty;
 
-    public int ListenPort { get; set; } = 8080;
+    public int ListenPort { get; set; }
 
     public string TargetHost { get; set; } = "127.0.0.1";
 
@@ -30,13 +30,13 @@ public sealed class CreateVirtualNetworkRequest
 {
     public string? Name { get; set; }
 
-    public int ListenPort { get; set; } = 51820;
+    public int ListenPort { get; set; }
 
-    public string TunAddress { get; set; } = "10.66.0.1";
+    public string TunAddress { get; set; } = string.Empty;
 
-    public int PrefixLength { get; set; } = 24;
+    public int PrefixLength { get; set; }
 
-    public int Mtu { get; set; } = 1400;
+    public int Mtu { get; set; }
 }
 
 public sealed record TunnelSummary(

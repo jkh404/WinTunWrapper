@@ -16,9 +16,9 @@ public sealed class UserAccount
 
     public int MaxPortTunnels { get; set; } = 3;
 
-    public int PortRangeStart { get; set; } = 20000;
+    public int PortRangeStart { get; set; }
 
-    public int PortRangeEnd { get; set; } = 30000;
+    public int PortRangeEnd { get; set; }
 
     public long BandwidthLimitBytes { get; set; } = 0;
 

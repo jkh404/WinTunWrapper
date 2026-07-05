@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using ProxyNetworker.Core;
 using ProxyNetworker.Core.PortTunnels;
 using ProxyNetworker.Server.Data;
@@ -12,11 +13,16 @@ public sealed class TunnelRegistry : IDisposable
     private readonly ConcurrentDictionary<string, ActiveTunnel> _tunnels = new(StringComparer.OrdinalIgnoreCase);
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<TunnelRegistry> _logger;
+    private readonly NetworkDefaultsOptions _networkDefaults;
 
-    public TunnelRegistry(IServiceScopeFactory scopeFactory, ILogger<TunnelRegistry> logger)
+    public TunnelRegistry(
+        IServiceScopeFactory scopeFactory,
+        ILogger<TunnelRegistry> logger,
+        IOptions<NetworkDefaultsOptions> networkDefaults)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
+        _networkDefaults = networkDefaults.Value;
     }
 
     public async Task<IReadOnlyCollection<TunnelSummary>> ListAsync(CancellationToken cancellationToken = default)
@@ -51,7 +57,13 @@ public sealed class TunnelRegistry : IDisposable
         }
 
         var protocol = ParseProtocol(request.Protocol);
-        var publicEndpoint = ParsePublicEndpoint(request.ListenAddress, request.ListenPort);
+        var listenAddress = string.IsNullOrWhiteSpace(request.ListenAddress)
+            ? _networkDefaults.PortTunnelListenAddress
+            : request.ListenAddress;
+        var listenPort = request.ListenPort > 0
+            ? request.ListenPort
+            : _networkDefaults.PortTunnelListenPort;
+        var publicEndpoint = ParsePublicEndpoint(listenAddress, listenPort);
         var privateService = new HostEndPoint(request.TargetHost, request.TargetPort);
         var name = NormalizeName(request.Name, "port-tunnel");
 
@@ -86,8 +98,20 @@ public sealed class TunnelRegistry : IDisposable
             throw new ArgumentNullException(nameof(request));
         }
 
-        var tunAddress = IPAddress.Parse(request.TunAddress);
-        var listen = new IPEndPoint(IPAddress.Any, ValidatePort(request.ListenPort, nameof(request.ListenPort)));
+        var tunAddressValue = string.IsNullOrWhiteSpace(request.TunAddress)
+            ? _networkDefaults.VirtualNetworkGatewayAddress
+            : request.TunAddress;
+        var listenPort = request.ListenPort > 0
+            ? request.ListenPort
+            : _networkDefaults.VirtualNetworkListenPort;
+        var prefixLength = request.PrefixLength > 0
+            ? request.PrefixLength
+            : _networkDefaults.VirtualNetworkPrefixLength;
+        var mtu = request.Mtu > 0
+            ? request.Mtu
+            : _networkDefaults.VirtualNetworkMtu;
+        var tunAddress = IPAddress.Parse(tunAddressValue);
+        var listen = new IPEndPoint(IPAddress.Any, ValidatePort(listenPort, nameof(request.ListenPort)));
         var name = NormalizeName(request.Name, "virtual-network");
 
         var tunDevice = TunDeviceFactory.Create(new TunDeviceOptions
@@ -95,8 +119,8 @@ public sealed class TunnelRegistry : IDisposable
             Name = name,
             TunnelType = "ProxyNetworker",
             Address = tunAddress,
-            PrefixLength = request.PrefixLength,
-            Mtu = request.Mtu
+            PrefixLength = prefixLength,
+            Mtu = mtu
         }, LogCoreEntry);
 
         VirtualNetworkTunnel? tunnel = null;
@@ -109,7 +133,7 @@ public sealed class TunnelRegistry : IDisposable
                 {
                     BindEndPoint = listen,
                     NodeAddress = tunAddress,
-                    PrefixLength = request.PrefixLength,
+                    PrefixLength = prefixLength,
                     NodeName = name
                 },
                 LogCoreEntry);

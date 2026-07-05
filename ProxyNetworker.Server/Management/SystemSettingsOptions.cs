@@ -8,10 +8,10 @@ public sealed class SystemSettingsOptions
     public const string Section = "SystemSettings";
 
     [Range(1, 65535)]
-    public int PublicPortRangeStart { get; init; } = 1;
+    public int PublicPortRangeStart { get; init; }
 
     [Range(1, 65535)]
-    public int PublicPortRangeEnd { get; init; } = 65535;
+    public int PublicPortRangeEnd { get; init; }
 
     [Range(0, long.MaxValue)]
     public long MaxBandwidthLimitBytes { get; init; }

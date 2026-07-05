@@ -4,9 +4,9 @@ public sealed class SystemSettingsRecord
 {
     public string Id { get; set; } = SystemSettingsIds.Default;
 
-    public int PublicPortRangeStart { get; set; } = 1;
+    public int PublicPortRangeStart { get; set; }
 
-    public int PublicPortRangeEnd { get; set; } = 65535;
+    public int PublicPortRangeEnd { get; set; }
 
     public long MaxBandwidthLimitBytes { get; set; }
 

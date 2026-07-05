@@ -11,6 +11,10 @@
 /WintunWrapper/bin/Debug
 **/[Bb]in/
 **/[Oo]bj/
+/.appdata/
+/.dotnet-home/
+/.nuget/
+/*.log
 ProxyNetworker.Server/data-protection-keys/
 ProxyNetworker.Server/logs/
 ProxyNetworker.Client/logs/
